@@ -66,6 +66,10 @@ function Nav() {
             <span className="bnav-icon">⚙️</span>
             Profile
           </button>
+          <button className="bnav-btn" onClick={handleLogout} style={{ color: 'var(--red)' }}>
+            <span className="bnav-icon">🚪</span>
+            Logout
+          </button>
         </div>
       </nav>
     </>
