@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom'
+import { Routes, Route, Navigate, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import api from './api/client'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -14,28 +14,61 @@ import AdminUsers from './pages/AdminUsers'
 export const AuthContext = createContext(null)
 export const useAuth = () => useContext(AuthContext)
 
+const NAV_ITEMS = [
+  { to: '/',            label: 'Tasks',        icon: '✅' },
+  { to: '/routine',     label: 'Routine',      icon: '🔁' },
+  { to: '/files',       label: 'Files',        icon: '📁' },
+  { to: '/transactions',label: 'Money',        icon: '💰' },
+]
+
 function Nav() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const handleLogout = async () => { await logout(); navigate('/login') }
 
   return (
-    <nav className="nav">
-      <span className="nav-brand">PersonalHub</span>
-      <div className="nav-links">
-        <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/">Tasks</NavLink>
-        <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/routine">Routine</NavLink>
-        <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/files">Files</NavLink>
-        <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/transactions">Transactions</NavLink>
-        {user?.is_superuser && (
-          <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/admin/users">Users</NavLink>
-        )}
-      </div>
-      <div className="nav-right">
-        <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/profile">Profile</NavLink>
-        <button className="btn-secondary btn-sm" onClick={handleLogout}>Logout</button>
-      </div>
-    </nav>
+    <>
+      {/* Desktop / tablet top nav */}
+      <nav className="nav">
+        <span className="nav-brand">PersonalHub</span>
+        <div className="nav-links">
+          {NAV_ITEMS.map(n => (
+            <NavLink key={n.to} className={({isActive})=>'nav-link'+(isActive?' active':'')} to={n.to} end={n.to==='/'}>
+              {n.icon} {n.label}
+            </NavLink>
+          ))}
+          {user?.is_superuser && (
+            <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/admin/users">
+              👥 Users
+            </NavLink>
+          )}
+        </div>
+        <div className="nav-right">
+          <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/profile">⚙️</NavLink>
+          <button className="btn-secondary btn-sm" onClick={handleLogout}>Logout</button>
+        </div>
+      </nav>
+
+      {/* Mobile bottom nav */}
+      <nav className="bottom-nav">
+        <div className="bottom-nav-inner">
+          {NAV_ITEMS.map(n => {
+            const active = n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)
+            return (
+              <button key={n.to} className={'bnav-btn'+(active?' active':'')} onClick={()=>navigate(n.to)}>
+                <span className="bnav-icon">{n.icon}</span>
+                {n.label}
+              </button>
+            )
+          })}
+          <button className={'bnav-btn'+(location.pathname==='/profile'?' active':'')} onClick={()=>navigate('/profile')}>
+            <span className="bnav-icon">⚙️</span>
+            Profile
+          </button>
+        </div>
+      </nav>
+    </>
   )
 }
 
@@ -56,26 +89,21 @@ export default function App() {
     const token = localStorage.getItem('token')
     if (!token) { setLoading(false); return }
     api.get('auth/me/').then(r => {
-      setUser(r.data.user)
-      setApproved(r.data.approved)
-    }).catch(() => {
-      localStorage.removeItem('token')
-    }).finally(() => setLoading(false))
+      setUser(r.data.user); setApproved(r.data.approved)
+    }).catch(() => localStorage.removeItem('token'))
+    .finally(() => setLoading(false))
   }, [])
 
   const login = async (username, password) => {
     const r = await api.post('auth/login/', { username, password })
     localStorage.setItem('token', r.data.token)
-    setUser(r.data.user)
-    setApproved(r.data.approved)
+    setUser(r.data.user); setApproved(r.data.approved)
     return r.data
   }
 
   const logout = async () => {
     try { await api.post('auth/logout/') } catch {}
-    localStorage.removeItem('token')
-    setUser(null)
-    setApproved(false)
+    localStorage.removeItem('token'); setUser(null); setApproved(false)
   }
 
   if (loading) return <div className="spinner" style={{marginTop:80}} />
