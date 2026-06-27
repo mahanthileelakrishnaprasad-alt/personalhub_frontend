@@ -63,6 +63,21 @@ export default function Dashboard() {
   const restore  = async (id) => { await api.post(`tasks/${id}/restore/`); load() }
   const del      = async (id) => { if (!confirm('Delete task?')) return; await api.delete(`tasks/${id}/`); load() }
 
+  const moveTask = async (index, dir) => {
+    // dir: -1 = up, +1 = down
+    const newActive = [...active]
+    const swapIdx = index + dir
+    if (swapIdx < 0 || swapIdx >= newActive.length) return
+    ;[newActive[index], newActive[swapIdx]] = [newActive[swapIdx], newActive[index]]
+    const ordered_ids = newActive.map(t => t.id)
+    // Optimistic update
+    setTasks(prev => {
+      const completed = prev.filter(t => t.completed)
+      return [...newActive, ...completed]
+    })
+    await api.post('tasks/reorder/', { ordered_ids })
+  }
+
   const delAllTreasure = async () => {
     if (!confirm('Permanently delete all completed tasks?')) return
     await api.delete('tasks/treasure/delete-all/'); load()
@@ -180,7 +195,7 @@ export default function Dashboard() {
         <div className="empty">No active tasks! Click "+ Add Task" to start. 🎯</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {active.map(t => (
+          {active.map((t, idx) => (
             <div key={t.id} className="card" style={{ padding: '13px 15px' }}>
               {editId === t.id ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -204,18 +219,27 @@ export default function Dashboard() {
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  {/* Position number */}
+                  <div style={{
+                    minWidth: 24, height: 24, borderRadius: 6, background: 'var(--bg2)',
+                    color: 'var(--text3)', fontSize: 11, fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0, marginTop: 1,
+                  }}>{idx + 1}</div>
+
+                  {/* Complete circle */}
                   <div onClick={() => complete(t.id)} style={{
                     width: 22, height: 22, borderRadius: '50%', border: '2px solid var(--border)',
                     cursor: 'pointer', flexShrink: 0, marginTop: 1, background: 'var(--surface3)',
                   }} title="Mark complete" />
+
+                  {/* Content */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, wordBreak: 'break-word' }}>{t.title}</div>
                     {t.note && <div style={{ color: 'var(--text2)', fontSize: 13, marginTop: 2 }}>{t.note}</div>}
                     <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                      {t.category_name && (
-                        <span className="tag" style={{ fontSize: 11 }}>{t.category_name}</span>
-                      )}
+                      {t.category_name && <span className="tag" style={{ fontSize: 11 }}>{t.category_name}</span>}
                       {t.reminder_at && (
                         <span style={{ fontSize: 11, color: 'var(--yellow)', display: 'flex', alignItems: 'center', gap: 3 }}>
                           ⏰ {fmtDate(t.reminder_at)}
@@ -223,6 +247,16 @@ export default function Dashboard() {
                         </span>
                       )}
                     </div>
+                  </div>
+
+                  {/* Up / Down / Edit / Delete */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
+                    <button className="btn-icon btn-sm" title="Move up"
+                      onClick={() => moveTask(idx, -1)} disabled={idx === 0}
+                      style={{ opacity: idx === 0 ? 0.3 : 1, fontSize: 12, padding: '2px 6px' }}>▲</button>
+                    <button className="btn-icon btn-sm" title="Move down"
+                      onClick={() => moveTask(idx, 1)} disabled={idx === active.length - 1}
+                      style={{ opacity: idx === active.length - 1 ? 0.3 : 1, fontSize: 12, padding: '2px 6px' }}>▼</button>
                   </div>
                   <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                     <button className="btn-icon btn-sm" onClick={() => startEdit(t)}>✏️</button>
