@@ -6,18 +6,41 @@ function fmtDate(s) {
   return new Date(s).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
+const DEFAULT_CATS = ['Personal', 'Family', 'Study', 'Work', 'Health', 'Shopping']
+
 export default function Dashboard() {
   const [tasks, setTasks] = useState([])
+  const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ title: '', note: '', reminder_at: '' })
+  const [catFilter, setCatFilter] = useState('')
+  const emptyForm = (catId = '') => ({ title: '', note: '', reminder_at: '', category: catId })
+  const [form, setForm] = useState(emptyForm())
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({})
   const [showTreasure, setShowTreasure] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [showCatModal, setShowCatModal] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [editCatId, setEditCatId] = useState(null)
+  const [editCatName, setEditCatName] = useState('')
   const [err, setErr] = useState('')
 
-  const load = () => api.get('tasks/').then(r => { setTasks(r.data); setLoading(false) })
+  const load = async (filter = catFilter) => {
+    const params = filter === 'none' ? '?category=none' : filter ? `?category=${filter}` : ''
+    const [t, c] = await Promise.all([
+      api.get(`tasks/${params}`),
+      api.get('tasks/categories/'),
+    ])
+    setTasks(t.data); setCategories(c.data); setLoading(false)
+  }
+
   useEffect(() => { load() }, [])
+
+  const applyFilter = (v) => {
+    setCatFilter(v); load(v)
+    const numId = parseInt(v)
+    setForm(f => ({ ...f, category: !isNaN(numId) && numId > 0 ? String(numId) : '' }))
+  }
 
   const active = tasks.filter(t => !t.completed)
   const treasure = tasks.filter(t => t.completed)
@@ -25,8 +48,14 @@ export default function Dashboard() {
   const addTask = async (e) => {
     e.preventDefault(); setErr('')
     try {
-      await api.post('tasks/', { ...form, reminder_at: form.reminder_at || null })
-      setForm({ title: '', note: '', reminder_at: '' }); setShowAddForm(false); load()
+      await api.post('tasks/', {
+        ...form,
+        reminder_at: form.reminder_at || null,
+        category: form.category || null,
+      })
+      const numId = parseInt(catFilter)
+      setForm(emptyForm(!isNaN(numId) && numId > 0 ? String(numId) : ''))
+      setShowAddForm(false); load()
     } catch { setErr('Could not add task.') }
   }
 
@@ -41,20 +70,63 @@ export default function Dashboard() {
 
   const startEdit = (t) => {
     setEditId(t.id)
-    setEditForm({ title: t.title, note: t.note || '', reminder_at: t.reminder_at ? t.reminder_at.slice(0,16) : '' })
+    setEditForm({
+      title: t.title, note: t.note || '',
+      reminder_at: t.reminder_at ? t.reminder_at.slice(0, 16) : '',
+      category: t.category ? String(t.category) : '',
+    })
   }
 
   const saveEdit = async (id) => {
-    await api.patch(`tasks/${id}/`, { ...editForm, reminder_at: editForm.reminder_at || null })
+    await api.patch(`tasks/${id}/`, {
+      ...editForm,
+      reminder_at: editForm.reminder_at || null,
+      category: editForm.category || null,
+    })
     setEditId(null); load()
   }
+
+  // Category management
+  const addCat = async (e) => {
+    e.preventDefault()
+    await api.post('tasks/categories/', { name: newCatName })
+    setNewCatName(''); load()
+  }
+  const saveCat = async (id) => {
+    await api.patch(`tasks/categories/${id}/`, { name: editCatName })
+    setEditCatId(null); load()
+  }
+  const deleteCat = async (id) => {
+    if (!confirm('Delete category? Tasks become Uncategorized.')) return
+    await api.delete(`tasks/categories/${id}/`); load()
+  }
+
+  const seedDefaultCats = async () => {
+    for (const name of DEFAULT_CATS) {
+      try { await api.post('tasks/categories/', { name }) } catch {}
+    }
+    load()
+  }
+
+  const CatSelect = ({ value, onChange }) => (
+    <select value={value} onChange={e => onChange(e.target.value)}>
+      <option value="">Uncategorized</option>
+      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+    </select>
+  )
 
   if (loading) return <div className="spinner" />
 
   return (
     <div className="page">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700 }}>✅ Tasks</h1>
+      {/* Header with day/date */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+        <div>
+          <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 2 }}>✅ Tasks</h1>
+          <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ fontSize: 12, color: 'var(--text2)' }}>{active.length} active</span>
           <button className="btn-primary btn-sm" onClick={() => setShowAddForm(v => !v)}>
@@ -63,19 +135,38 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Category filter pills */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
+        <button className={`btn-xs ${catFilter === '' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter('')}>All</button>
+        <button className={`btn-xs ${catFilter === 'none' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter('none')}>Uncat.</button>
+        {categories.map(c => (
+          <button key={c.id}
+            className={`btn-xs ${catFilter === String(c.id) ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => applyFilter(String(c.id))}
+          >{c.name}</button>
+        ))}
+        <button className="btn-secondary btn-xs" style={{ marginLeft: 'auto' }} onClick={() => setShowCatModal(true)}>⚙️ Categories</button>
+      </div>
+
       {/* Add form */}
       {showAddForm && (
         <div className="card" style={{ marginBottom: 16, borderLeft: '3px solid var(--accent)' }}>
           <form onSubmit={addTask}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <input autoFocus placeholder="Task title…" value={form.title}
-                onChange={e => setForm({...form, title: e.target.value})} required />
+                onChange={e => setForm(p => ({ ...p, title: e.target.value }))} required />
               <textarea placeholder="Note (optional)" value={form.note} rows={2} style={{ resize: 'vertical' }}
-                onChange={e => setForm({...form, note: e.target.value})} />
-              <div>
-                <label>Reminder (optional)</label>
-                <input type="datetime-local" value={form.reminder_at}
-                  onChange={e => setForm({...form, reminder_at: e.target.value})} />
+                onChange={e => setForm(p => ({ ...p, note: e.target.value }))} />
+              <div className="form-row">
+                <div>
+                  <label>Category</label>
+                  <CatSelect value={form.category} onChange={v => setForm(p => ({ ...p, category: v }))} />
+                </div>
+                <div>
+                  <label>Reminder (optional)</label>
+                  <input type="datetime-local" value={form.reminder_at}
+                    onChange={e => setForm(p => ({ ...p, reminder_at: e.target.value }))} />
+                </div>
               </div>
               {err && <p className="msg-error">{err}</p>}
               <button className="btn-primary" style={{ alignSelf: 'flex-start' }}>+ Add Task</button>
@@ -93,10 +184,19 @@ export default function Dashboard() {
             <div key={t.id} className="card" style={{ padding: '13px 15px' }}>
               {editId === t.id ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <input value={editForm.title} onChange={e => setEditForm({...editForm,title:e.target.value})} />
-                  <textarea value={editForm.note} rows={2} style={{ resize: 'vertical' }} onChange={e => setEditForm({...editForm,note:e.target.value})} />
-                  <div><label>Reminder</label>
-                    <input type="datetime-local" value={editForm.reminder_at} onChange={e => setEditForm({...editForm,reminder_at:e.target.value})} />
+                  <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} />
+                  <textarea value={editForm.note} rows={2} style={{ resize: 'vertical' }}
+                    onChange={e => setEditForm(p => ({ ...p, note: e.target.value }))} />
+                  <div className="form-row">
+                    <div>
+                      <label>Category</label>
+                      <CatSelect value={editForm.category} onChange={v => setEditForm(p => ({ ...p, category: v }))} />
+                    </div>
+                    <div>
+                      <label>Reminder</label>
+                      <input type="datetime-local" value={editForm.reminder_at}
+                        onChange={e => setEditForm(p => ({ ...p, reminder_at: e.target.value }))} />
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="btn-success btn-sm" onClick={() => saveEdit(t.id)}>Save</button>
@@ -107,18 +207,22 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                   <div onClick={() => complete(t.id)} style={{
                     width: 22, height: 22, borderRadius: '50%', border: '2px solid var(--border)',
-                    cursor: 'pointer', flexShrink: 0, marginTop: 1, transition: 'all .15s',
-                    background: 'var(--surface3)',
+                    cursor: 'pointer', flexShrink: 0, marginTop: 1, background: 'var(--surface3)',
                   }} title="Mark complete" />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, wordBreak: 'break-word' }}>{t.title}</div>
                     {t.note && <div style={{ color: 'var(--text2)', fontSize: 13, marginTop: 2 }}>{t.note}</div>}
-                    {t.reminder_at && (
-                      <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        ⏰ {fmtDate(t.reminder_at)}
-                        {t.reminder_sent && <span className="badge badge-green" style={{fontSize:10}}>sent</span>}
-                      </div>
-                    )}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                      {t.category_name && (
+                        <span className="tag" style={{ fontSize: 11 }}>{t.category_name}</span>
+                      )}
+                      {t.reminder_at && (
+                        <span style={{ fontSize: 11, color: 'var(--yellow)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                          ⏰ {fmtDate(t.reminder_at)}
+                          {t.reminder_sent && <span className="badge badge-green" style={{ fontSize: 10 }}>sent</span>}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                     <button className="btn-icon btn-sm" onClick={() => startEdit(t)}>✏️</button>
@@ -147,7 +251,10 @@ export default function Dashboard() {
                       <span style={{ fontSize: 15 }}>✅</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ textDecoration: 'line-through', color: 'var(--text2)', wordBreak: 'break-word' }}>{t.title}</div>
-                        {t.completed_at && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>Done {fmtDate(t.completed_at)}</div>}
+                        <div style={{ display: 'flex', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                          {t.category_name && <span className="tag" style={{ fontSize: 10 }}>{t.category_name}</span>}
+                          {t.completed_at && <span style={{ fontSize: 11, color: 'var(--text3)' }}>Done {fmtDate(t.completed_at)}</span>}
+                        </div>
                       </div>
                       <div style={{ display: 'flex', gap: 2 }}>
                         <button className="btn-icon btn-sm" title="Restore" onClick={() => restore(t.id)}>↩️</button>
@@ -162,6 +269,48 @@ export default function Dashboard() {
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Categories modal */}
+      {showCatModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowCatModal(false) }}>
+          <div className="modal">
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div className="modal-title" style={{ margin: 0 }}>Task Categories</div>
+              <button className="btn-icon" onClick={() => setShowCatModal(false)}>✕</button>
+            </div>
+            <form onSubmit={addCat} style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <input placeholder="New category name" value={newCatName}
+                onChange={e => setNewCatName(e.target.value)} required />
+              <button className="btn-primary btn-sm" style={{ flexShrink: 0 }}>+ Add</button>
+            </form>
+            {categories.length === 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <p style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 8 }}>No categories yet.</p>
+                <button className="btn-secondary btn-sm" onClick={seedDefaultCats}>
+                  ✨ Add defaults (Personal, Family, Study…)
+                </button>
+              </div>
+            )}
+            {categories.map(c => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                {editCatId === c.id ? (
+                  <>
+                    <input value={editCatName} onChange={e => setEditCatName(e.target.value)} style={{ flex: 1 }} />
+                    <button className="btn-success btn-sm" onClick={() => saveCat(c.id)}>Save</button>
+                    <button className="btn-secondary btn-sm" onClick={() => setEditCatId(null)}>✕</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ flex: 1 }}>{c.name}</span>
+                    <button className="btn-icon btn-sm" onClick={() => { setEditCatId(c.id); setEditCatName(c.name) }}>✏️</button>
+                    <button className="btn-icon btn-sm" onClick={() => deleteCat(c.id)}>🗑️</button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
