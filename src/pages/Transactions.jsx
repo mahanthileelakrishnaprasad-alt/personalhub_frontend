@@ -1,324 +1,327 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import api from '../api/client'
 
-// Inline calculator: shows pending expression like "200+" then lets user type second operand
-function AmountInput({ value, onChange, placeholder = '0.00' }) {
-  const [op, setOp] = useState(null)          // '+' '-' '*' '/'
-  const [base, setBase] = useState(null)       // first operand (locked)
-  const [display, setDisplay] = useState(value || '')
+function fmtSize(b) {
+  if (!b) return '0 B'
+  if (b < 1024) return b + ' B'
+  if (b < 1024*1024) return (b/1024).toFixed(1)+' KB'
+  return (b/1024/1024).toFixed(2)+' MB'
+}
 
-  // sync external value changes when not in calc mode
-  useEffect(() => {
-    if (op === null) setDisplay(value || '')
-  }, [value])
+const BODY_WORD_LIMIT = 150
 
-  const ops = [
-    { sym: '+', label: '+' },
-    { sym: '-', label: '−' },
-    { sym: '*', label: '×' },
-    { sym: '/', label: '÷' },
-  ]
+function countWords(str) {
+  return str ? str.trim().split(/\s+/).filter(Boolean).length : 0
+}
 
-  const applyCalc = (curBase, curOp, curDisplay) => {
-    const operand = parseFloat(curDisplay) || 0
-    let result = curBase
-    if (curOp === '+') result = curBase + operand
-    if (curOp === '-') result = curBase - operand
-    if (curOp === '*') result = curBase * operand
-    if (curOp === '/' && operand !== 0) result = curBase / operand
-    return String(Math.round(result * 100) / 100)
+export default function Files() {
+  const [files, setFiles] = useState([])
+  const [notes, setNotes] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [uploadErr, setUploadErr] = useState('')
+  const [uploadOk, setUploadOk] = useState('')
+  const [drag, setDrag] = useState(false)
+  const fileRef = useRef()
+  const [noteForm, setNoteForm] = useState({ heading: '', body: '' })
+  const [editNoteId, setEditNoteId] = useState(null)
+  const [editNoteForm, setEditNoteForm] = useState({})
+  // Track which notes have their body expanded
+  const [expandedNotes, setExpandedNotes] = useState({})
+
+  const load = async () => {
+    const [f, n] = await Promise.all([api.get('files/'), api.get('notes/')])
+    setFiles(f.data); setNotes(n.data); setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  // ── RELIABLE UPLOAD ───────────────────────────────────────────────────
+  const uploadFile = async (file) => {
+    if (!file) return
+    setUploadErr(''); setUploadOk(''); setUploading(true)
+    const fd = new FormData()
+    fd.append('file', file)
+    try {
+      await api.post('files/', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setUploadOk(`"${file.name}" uploaded!`)
+      if (fileRef.current) fileRef.current.value = ''
+      load()
+    } catch (err) {
+      setUploadErr(err.response?.data?.detail || 'Upload failed. Please try again.')
+    } finally { setUploading(false) }
   }
 
-  const selectOp = (sym) => {
-    if (op === null) {
-      // First operator click — lock current value as base
-      const cur = parseFloat(display) || 0
-      setBase(cur)
-      setOp(sym)
-      setDisplay('')
+  const handleInputChange = (e) => uploadFile(e.target.files?.[0])
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault(); setDrag(false)
+    uploadFile(e.dataTransfer.files?.[0])
+  }, [])
+
+  const handleDragOver = (e) => { e.preventDefault(); setDrag(true) }
+  const handleDragLeave = () => setDrag(false)
+
+  const deleteFile = async (id) => {
+    if (!confirm('Delete this file?')) return
+    await api.delete(`files/${id}/`); load()
+  }
+
+  const addNote = async (e) => {
+    e.preventDefault()
+    await api.post('notes/', noteForm)
+    setNoteForm({ heading: '', body: '' }); load()
+  }
+
+  const saveEditNote = async (id) => {
+    await api.patch(`notes/${id}/`, editNoteForm)
+    setEditNoteId(null); load()
+  }
+
+  const deleteNote = async (id) => {
+    if (!confirm('Delete note?')) return
+    await api.delete(`notes/${id}/`); load()
+  }
+
+  const copy = (text) => navigator.clipboard.writeText(text).catch(()=>{})
+
+  const toggleExpand = (id) => {
+    setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const typeIcon = (t) => ({image:'🖼️',pdf:'📄',text:'📝',other:'📎'}[t]||'📎')
+
+  // Build proxy URL — includes token as query param since window.open
+  // doesn't go through axios interceptors (no Authorization header).
+  const BASE = import.meta.env.VITE_API_BASE || ''
+  const token = localStorage.getItem('token') || ''
+
+  const proxyUrl = (f, download = false) => {
+    const params = new URLSearchParams({ token })
+    if (download) params.set('download', '1')
+    return `${BASE}/api/files/${f.id}/proxy/?${params}`
+  }
+
+  const openFile = (f) => {
+    if (!f.id) return
+    if (f.file_type === 'image') {
+      window.open(f.file_url, '_blank', 'noreferrer')
     } else {
-      // Second operator click — auto-apply previous calc, then set new op
-      if (display !== '') {
-        const result = applyCalc(base, op, display)
-        const newBase = parseFloat(result) || 0
-        setBase(newBase)
-        setOp(sym)
-        setDisplay('')
-        onChange(result)
-      } else {
-        // Just switch the pending operator
-        setOp(sym)
-      }
+      window.open(proxyUrl(f), '_blank', 'noreferrer')
     }
   }
 
-  const finishCalc = () => {
-    if (op === null || display === '') return
-    const final = applyCalc(base, op, display)
-    setOp(null); setBase(null); setDisplay(final)
-    onChange(final)
+  const downloadFile = (f) => {
+    if (!f.id) return
+    if (f.file_type === 'image') {
+      const a = document.createElement('a')
+      a.href = f.file_url; a.download = f.name; a.target = '_blank'
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    } else {
+      const a = document.createElement('a')
+      a.href = proxyUrl(f, true); a.download = f.name
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    }
   }
 
-  const handleChange = (v) => {
-    setDisplay(v)
-    if (op === null) onChange(v)
-  }
-
-  // Allow Enter key to finish calc
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && op !== null) { e.preventDefault(); finishCalc() }
-  }
-
-  return (
-    <div>
-      {op && (
-        <div style={{
-          fontSize: 11, color: 'var(--accent)', marginBottom: 4, fontWeight: 600,
-          background: 'var(--accent-glow)', padding: '3px 8px', borderRadius: 5, display: 'inline-block'
-        }}>
-          {base} {op} … (click operator or press Enter to apply)
-        </div>
-      )}
-      <div style={{ display: 'flex', gap: 4 }}>
-        <div style={{ display: 'flex', gap: 2 }}>
-          {ops.map(o => (
-            <button key={o.sym} type="button"
-              className={'calc-op-btn' + (op === o.sym ? ' selected' : '')}
-              style={{ fontSize: 15, fontWeight: 700, padding: '9px 10px', minWidth: 34 }}
-              onClick={() => selectOp(o.sym)}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-        <input
-          type="number" step="0.01" min="0"
-          placeholder={op ? 'operand…' : placeholder}
-          value={display}
-          onChange={e => handleChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          style={{ flex: 1 }}
-        />
-      </div>
-    </div>
-  )
-}
-
-export default function Transactions() {
-  const [data, setData] = useState({ transactions: [], total_income: 0, total_expense: 0, balance: 0 })
-  const [categories, setCategories] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [catFilter, setCatFilter] = useState('')
-
-  const emptyForm = { title: '', amount: '', transaction_type: 'expense', note: '', category: '', new_category: '' }
-  const [form, setForm] = useState(emptyForm)
-  const [editId, setEditId] = useState(null)
-  const [editForm, setEditForm] = useState({})
-  const [showCatModal, setShowCatModal] = useState(false)
-  const [newCatName, setNewCatName] = useState('')
-  const [editCatId, setEditCatId] = useState(null)
-  const [editCatName, setEditCatName] = useState('')
-
-  const load = async (filter = catFilter) => {
-    const params = filter ? `?category=${filter}` : ''
-    const [t, c] = await Promise.all([api.get(`transactions/${params}`), api.get('transactions/categories/')])
-    setData(t.data); setCategories(c.data); setLoading(false)
-  }
-
-  useEffect(() => { load() }, [])
-
-  const applyFilter = (v) => { setCatFilter(v); load(v) }
-
-  const addTx = async (e) => {
-    e.preventDefault()
-    const payload = { ...form }
-    if (form.category === '__new__' && form.new_category) {
-      const r = await api.post('transactions/categories/', { name: form.new_category })
-      payload.category = r.data.id
-    } else if (!form.category) payload.category = null
-    delete payload.new_category
-    await api.post('transactions/', payload)
-    setForm(emptyForm); load()
-  }
-
-  const saveTx = async (id) => {
-    const payload = { ...editForm }
-    if (editForm.category === '__new__' && editForm.new_category) {
-      const r = await api.post('transactions/categories/', { name: editForm.new_category })
-      payload.category = r.data.id
-    } else if (!editForm.category) payload.category = null
-    delete payload.new_category
-    await api.patch(`transactions/${id}/`, payload)
-    setEditId(null); load()
-  }
-
-  const deleteTx = async (id) => {
-    if (!confirm('Delete this transaction?')) return
-    await api.delete(`transactions/${id}/`); load()
-  }
-
-  const deleteAll = async () => {
-    if (!confirm('Delete ALL transactions?')) return
-    await api.delete('transactions/delete-all/'); load()
-  }
-
-  const addCat = async (e) => {
-    e.preventDefault()
-    await api.post('transactions/categories/', { name: newCatName })
-    setNewCatName(''); load()
-  }
-  const saveCat = async (id) => { await api.patch(`transactions/categories/${id}/`, { name: editCatName }); setEditCatId(null); load() }
-  const deleteCat = async (id) => { if (!confirm('Delete? Txns become Uncategorized.')) return; await api.delete(`transactions/categories/${id}/`); load() }
-
-  const fmt = (n) => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 })
-
-  const CatSelect = ({ value, onChange }) => (
-    <select value={value} onChange={e => onChange(e.target.value)}>
-      <option value="">Uncategorized</option>
-      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-      <option value="__new__">+ New category…</option>
-    </select>
-  )
+  const noteBodyWordCount = countWords(noteForm.body)
+  const isBodyTooLong = noteBodyWordCount > BODY_WORD_LIMIT
 
   if (loading) return <div className="spinner" />
 
   return (
     <div className="page">
-      <h1 className="page-title">💰 Transactions</h1>
+      <h1 className="page-title">📁 Files & Notes</h1>
 
-      {/* Summary */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div className="stat-card"><div className="stat-label">Income</div><div className="stat-value income-amount">{fmt(data.total_income)}</div></div>
-        <div className="stat-card"><div className="stat-label">Expenses</div><div className="stat-value expense-amount">{fmt(data.total_expense)}</div></div>
-        <div className="stat-card">
-          <div className="stat-label">Balance</div>
-          <div className="stat-value" style={{ color: data.balance >= 0 ? 'var(--green)' : 'var(--red)' }}>{fmt(data.balance)}</div>
-        </div>
-      </div>
-
-      {/* Add transaction */}
+      {/* Upload zone */}
       <div className="card" style={{ marginBottom: 18 }}>
-        <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>Add Transaction</div>
-        <form onSubmit={addTx}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <input placeholder="Title (e.g. Grocery)" value={form.title} onChange={e => setForm({...form,title:e.target.value})} required />
-            <div>
-              <label>Amount (₹) — use +−×÷ for quick math</label>
-              <AmountInput value={form.amount} onChange={v => setForm({...form, amount: v})} />
-            </div>
-            <div className="form-row">
-              <div>
-                <label>Type</label>
-                <select value={form.transaction_type} onChange={e => setForm({...form,transaction_type:e.target.value})}>
-                  <option value="expense">Expense</option>
-                  <option value="income">Income</option>
-                </select>
-              </div>
-              <div>
-                <label>Category</label>
-                <CatSelect value={form.category} onChange={v => setForm({...form,category:v,new_category:''})} />
-              </div>
-            </div>
-            {form.category === '__new__' && <input placeholder="New category name" value={form.new_category} onChange={e => setForm({...form,new_category:e.target.value})} />}
-            <input placeholder="Note (optional)" value={form.note} onChange={e => setForm({...form,note:e.target.value})} />
-            <button className="btn-primary" style={{alignSelf:'flex-start'}} disabled={!form.title||!form.amount}>+ Add Transaction</button>
+        <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>Upload File</div>
+        <div
+          className={`upload-zone${drag?' drag-over':''}`}
+          onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
+          onClick={() => !uploading && fileRef.current?.click()}
+        >
+          <div style={{ fontSize: 32, marginBottom: 8 }}>{uploading ? '⏳' : '📤'}</div>
+          <div style={{ color: 'var(--text2)', fontSize: 14 }}>
+            {uploading ? 'Uploading…' : 'Click or drag & drop a file here'}
           </div>
-        </form>
+          <input ref={fileRef} type="file" onChange={handleInputChange} disabled={uploading} style={{ display: 'none' }} />
+        </div>
+        {uploadErr && <p className="msg-error" style={{ marginTop: 10 }}>❌ {uploadErr}</p>}
+        {uploadOk  && <p className="msg-success" style={{ marginTop: 10 }}>✅ {uploadOk}</p>}
+        <p style={{ color: 'var(--text2)', fontSize: 11, marginTop: 8 }}>
+          Files stored on Cloudinary. Supported: images, PDF, text, and more.
+        </p>
       </div>
 
-      {/* Filter */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Filter:</span>
-        <button className={`btn-xs ${catFilter===''?'btn-primary':'btn-secondary'}`} onClick={()=>applyFilter('')}>All</button>
-        <button className={`btn-xs ${catFilter==='none'?'btn-primary':'btn-secondary'}`} onClick={()=>applyFilter('none')}>Uncat.</button>
-        {categories.map(c => (
-          <button key={c.id} className={`btn-xs ${catFilter===String(c.id)?'btn-primary':'btn-secondary'}`} onClick={()=>applyFilter(String(c.id))}>{c.name}</button>
-        ))}
-        <button className="btn-secondary btn-xs" style={{marginLeft:'auto'}} onClick={()=>setShowCatModal(true)}>⚙️ Categories</button>
-      </div>
-
-      {/* List */}
-      {data.transactions.length === 0 ? <div className="empty">No transactions yet.</div> : (
-        <div className="card">
+      {/* Files list */}
+      {files.length > 0 && (
+        <div className="card" style={{ marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>Files ({files.length})</div>
           <div style={{overflowX:'auto'}}>
             <table className="table">
-              <thead><tr><th>Title</th><th>Amount</th><th>Cat.</th><th>Date</th><th></th></tr></thead>
+              <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Date</th><th></th></tr></thead>
               <tbody>
-                {data.transactions.map(t => (
-                  <tr key={t.id}>
-                    {editId === t.id ? (
-                      <td colSpan={5}>
-                        <div style={{display:'flex',flexDirection:'column',gap:8,padding:'4px 0'}}>
-                          <input value={editForm.title} onChange={e=>setEditForm({...editForm,title:e.target.value})} placeholder="Title" />
-                          <div>
-                            <label>Amount</label>
-                            <AmountInput value={editForm.amount} onChange={v=>setEditForm({...editForm,amount:v})} />
-                          </div>
-                          <div className="form-row">
-                            <select value={editForm.transaction_type} onChange={e=>setEditForm({...editForm,transaction_type:e.target.value})}>
-                              <option value="expense">Expense</option>
-                              <option value="income">Income</option>
-                            </select>
-                            <CatSelect value={editForm.category||''} onChange={v=>setEditForm({...editForm,category:v,new_category:''})} />
-                          </div>
-                          {editForm.category==='__new__' && <input placeholder="New category" value={editForm.new_category||''} onChange={e=>setEditForm({...editForm,new_category:e.target.value})} />}
-                          <input value={editForm.note||''} onChange={e=>setEditForm({...editForm,note:e.target.value})} placeholder="Note" />
-                          <div style={{display:'flex',gap:8}}>
-                            <button className="btn-success btn-sm" onClick={()=>saveTx(t.id)}>Save</button>
-                            <button className="btn-secondary btn-sm" onClick={()=>setEditId(null)}>Cancel</button>
-                          </div>
-                        </div>
-                      </td>
-                    ) : (<>
-                      <td style={{fontWeight:500}}>{t.title}{t.note && <div style={{fontSize:11,color:'var(--text2)',marginTop:2}}>{t.note}</div>}</td>
-                      <td><span className={t.transaction_type==='income'?'income-amount':'expense-amount'}>{t.transaction_type==='income'?'+':'-'}{fmt(t.amount)}</span></td>
-                      <td><span className="tag">{t.category_name||'—'}</span></td>
-                      <td style={{color:'var(--text2)',fontSize:12,whiteSpace:'nowrap'}}>{new Date(t.created_at).toLocaleDateString('en-IN')}</td>
-                      <td>
-                        <div style={{display:'flex',gap:2}}>
-                          <button className="btn-icon btn-sm" onClick={()=>{setEditId(t.id);setEditForm({title:t.title,amount:t.amount,transaction_type:t.transaction_type,note:t.note,category:t.category||''})}}>✏️</button>
-                          <button className="btn-icon btn-sm" onClick={()=>deleteTx(t.id)}>🗑️</button>
-                        </div>
-                      </td>
-                    </>)}
+                {files.map(f => (
+                  <tr key={f.id}>
+                    <td>
+                      <span style={{ marginRight: 6 }}>{typeIcon(f.file_type)}</span>
+                      {f.file_url
+                        ? <span
+                            onClick={() => openFile(f)}
+                            style={{ wordBreak: 'break-all', cursor: 'pointer', color: 'var(--accent)', textDecoration: 'underline' }}
+                          >{f.name}</span>
+                        : <span style={{ color: 'var(--red)', fontSize: 12 }}>{f.name} (missing)</span>}
+                    </td>
+                    <td><span className="tag">{f.file_type}</span></td>
+                    <td style={{ color: 'var(--text2)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmtSize(f.size)}</td>
+                    <td style={{ color: 'var(--text2)', fontSize: 12, whiteSpace: 'nowrap' }}>{new Date(f.uploaded_at).toLocaleDateString('en-IN')}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 2 }}>
+                        {f.file_url && <button className="btn-icon btn-sm" title="Download" onClick={() => downloadFile(f)}>⬇️</button>}
+                        <button className="btn-icon btn-sm" onClick={() => deleteFile(f.id)}>🗑️</button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div style={{marginTop:12,textAlign:'right'}}>
-            <button className="btn-danger btn-sm" onClick={deleteAll}>Delete All</button>
-          </div>
         </div>
       )}
 
-      {/* Categories modal */}
-      {showCatModal && (
-        <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)setShowCatModal(false)}}>
-          <div className="modal">
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
-              <div className="modal-title" style={{margin:0}}>Manage Categories</div>
-              <button className="btn-icon" onClick={()=>setShowCatModal(false)}>✕</button>
+      {/* Notes */}
+      <div className="card">
+        <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>Text Notes</div>
+        <form onSubmit={addNote} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          <input
+            placeholder="Note heading (title)…"
+            value={noteForm.heading}
+            onChange={e => setNoteForm({...noteForm, heading: e.target.value})}
+            required
+          />
+          <div style={{ position: 'relative' }}>
+            <textarea
+              placeholder="Body (optional — supports 1000+ words)…"
+              value={noteForm.body}
+              onChange={e => setNoteForm({...noteForm, body: e.target.value})}
+              rows={8}
+              style={{
+                resize: 'vertical',
+                width: '100%',
+                boxSizing: 'border-box',
+                paddingBottom: 24,
+                minHeight: 160,
+                fontFamily: 'inherit',
+                fontSize: 14,
+                lineHeight: 1.6,
+              }}
+            />
+            <div style={{
+              position: 'absolute', bottom: 6, right: 8,
+              fontSize: 11,
+              color: isBodyTooLong ? 'var(--accent)' : 'var(--text3)'
+            }}>
+              {noteBodyWordCount} words
             </div>
-            <form onSubmit={addCat} style={{display:'flex',gap:8,marginBottom:14}}>
-              <input placeholder="New category" value={newCatName} onChange={e=>setNewCatName(e.target.value)} required />
-              <button className="btn-primary btn-sm" style={{flexShrink:0}}>+ Add</button>
-            </form>
-            {categories.map(c => (
-              <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderTop:'1px solid var(--border)'}}>
-                {editCatId===c.id ? (
-                  <><input value={editCatName} onChange={e=>setEditCatName(e.target.value)} style={{flex:1}} />
-                  <button className="btn-success btn-sm" onClick={()=>saveCat(c.id)}>Save</button>
-                  <button className="btn-secondary btn-sm" onClick={()=>setEditCatId(null)}>✕</button></>
-                ) : (
-                  <><span style={{flex:1}}>{c.name}</span>
-                  <button className="btn-icon btn-sm" onClick={()=>{setEditCatId(c.id);setEditCatName(c.name)}}>✏️</button>
-                  <button className="btn-icon btn-sm" onClick={()=>deleteCat(c.id)}>🗑️</button></>
-                )}
-              </div>
-            ))}
           </div>
-        </div>
-      )}
+          {isBodyTooLong && (
+            <p style={{ fontSize: 12, color: 'var(--accent)', margin: '-4px 0 0' }}>
+              💡 Long note — heading will show as a collapsed card; tap to expand body.
+            </p>
+          )}
+          <button className="btn-primary" style={{ alignSelf: 'flex-start' }}>+ Add Note</button>
+        </form>
+
+        {notes.length === 0 && <div className="empty" style={{ padding: '16px 0' }}>No notes yet.</div>}
+
+        {notes.map(n => {
+          const isLong = countWords(n.body) > BODY_WORD_LIMIT
+          const isExpanded = expandedNotes[n.id]
+
+          return (
+            <div key={n.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12 }}>
+              {editNoteId === n.id ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input value={editNoteForm.heading} onChange={e => setEditNoteForm({...editNoteForm, heading: e.target.value})} />
+                  <textarea value={editNoteForm.body} onChange={e => setEditNoteForm({...editNoteForm, body: e.target.value})} rows={6} style={{ resize: 'vertical' }} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-success btn-sm" onClick={() => saveEditNote(n.id)}>Save</button>
+                    <button className="btn-secondary btn-sm" onClick={() => setEditNoteId(null)}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {/* Heading row — always visible, clickable to expand if long body */}
+                  <div
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
+                      cursor: isLong ? 'pointer' : 'default',
+                    }}
+                    onClick={isLong ? () => toggleExpand(n.id) : undefined}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                      {isLong && (
+                        <span style={{ fontSize: 13, color: 'var(--accent)', flexShrink: 0 }}>
+                          {isExpanded ? '▼' : '▶'}
+                        </span>
+                      )}
+                      <strong style={{ fontSize: 15, flex: 1, wordBreak: 'break-word' }}>{n.heading}</strong>
+                      {isLong && !isExpanded && (
+                        <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                          {countWords(n.body)} words
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                      <button className="btn-icon btn-sm" title="Copy heading" onClick={() => copy(n.heading)}>📋</button>
+                      {(!isLong || isExpanded) && n.body && (
+                        <button className="btn-icon btn-sm" title="Copy body" onClick={() => copy(n.body)}>📄</button>
+                      )}
+                      <button className="btn-icon btn-sm" onClick={() => { setEditNoteId(n.id); setEditNoteForm({heading: n.heading, body: n.body}) }}>✏️</button>
+                      <button className="btn-icon btn-sm" onClick={() => deleteNote(n.id)}>🗑️</button>
+                    </div>
+                  </div>
+
+                  {/* Body — always show if short; show/hide if long */}
+                  {n.body && (!isLong || isExpanded) && (
+                    <div style={{ position: 'relative', marginTop: 8 }}>
+                      <pre style={{
+                        whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13,
+                        color: 'var(--text2)', lineHeight: 1.7, paddingRight: 8,
+                        maxHeight: isLong ? '60vh' : 'none',
+                        overflowY: isLong ? 'auto' : 'visible',
+                        background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px',
+                      }}>
+                        {n.body}
+                      </pre>
+                      {isLong && (
+                        <button
+                          className="btn-secondary btn-sm"
+                          style={{ marginTop: 6, width: '100%' }}
+                          onClick={() => toggleExpand(n.id)}
+                        >
+                          ▲ Collapse
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Short preview for collapsed long notes */}
+                  {n.body && isLong && !isExpanded && (
+                    <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4, fontStyle: 'italic' }}>
+                      {n.body.slice(0, 80).trim()}…
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                    {new Date(n.updated_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

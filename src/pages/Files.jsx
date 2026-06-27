@@ -8,6 +8,12 @@ function fmtSize(b) {
   return (b/1024/1024).toFixed(2)+' MB'
 }
 
+const BODY_WORD_LIMIT = 150
+
+function countWords(str) {
+  return str ? str.trim().split(/\s+/).filter(Boolean).length : 0
+}
+
 export default function Files() {
   const [files, setFiles] = useState([])
   const [notes, setNotes] = useState([])
@@ -18,8 +24,11 @@ export default function Files() {
   const [drag, setDrag] = useState(false)
   const fileRef = useRef()
   const [noteForm, setNoteForm] = useState({ heading: '', body: '' })
+  const noteBodyRef = useRef('')  // always holds latest body value, avoids stale closure on submit
   const [editNoteId, setEditNoteId] = useState(null)
   const [editNoteForm, setEditNoteForm] = useState({})
+  // Track which notes have their body expanded
+  const [expandedNotes, setExpandedNotes] = useState({})
 
   const load = async () => {
     const [f, n] = await Promise.all([api.get('files/'), api.get('notes/')])
@@ -59,8 +68,12 @@ export default function Files() {
   }
 
   const addNote = async (e) => {
-    e.preventDefault()
-    await api.post('notes/', noteForm)
+    if (e && e.preventDefault) e.preventDefault()
+    if (!noteForm.heading.trim()) return
+    // Use ref value for body to guarantee we have the complete latest text
+    const payload = { heading: noteForm.heading, body: noteBodyRef.current }
+    await api.post('notes/', payload)
+    noteBodyRef.current = ''
     setNoteForm({ heading: '', body: '' }); load()
   }
 
@@ -76,50 +89,47 @@ export default function Files() {
 
   const copy = (text) => navigator.clipboard.writeText(text).catch(()=>{})
 
+  const toggleExpand = (id) => {
+    setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
   const typeIcon = (t) => ({image:'🖼️',pdf:'📄',text:'📝',other:'📎'}[t]||'📎')
 
-  // For Cloudinary-hosted files, append fl_attachment to force correct serving.
-  // Images open inline; PDFs/text/other are fetched as blob so browser gets
-  // the right content-type regardless of how Cloudinary stored them.
-  const blobOpen = async (f, forceDownload = false) => {
-    try {
-      const res = await fetch(f.file_url)
-      const blob = await res.blob()
-      const mimeMap = {
-        image: blob.type || 'image/jpeg',
-        pdf: 'application/pdf',
-        text: 'text/plain',
-        other: blob.type || 'application/octet-stream',
-      }
-      const typed = new Blob([blob], { type: mimeMap[f.file_type] || blob.type })
-      const url = URL.createObjectURL(typed)
-      if (forceDownload) {
-        const a = document.createElement('a')
-        a.href = url; a.download = f.name
-        document.body.appendChild(a); a.click(); document.body.removeChild(a)
-      } else {
-        window.open(url, '_blank')
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 10000)
-    } catch {
-      // Fallback: open directly
-      window.open(f.file_url, '_blank', 'noreferrer')
-    }
+  // Build proxy URL — includes token as query param since window.open
+  // doesn't go through axios interceptors (no Authorization header).
+  const BASE = import.meta.env.VITE_API_BASE || ''
+  const token = localStorage.getItem('token') || ''
+
+  const proxyUrl = (f, download = false) => {
+    const params = new URLSearchParams({ token })
+    if (download) params.set('download', '1')
+    return `${BASE}/api/files/${f.id}/proxy/?${params}`
   }
 
   const openFile = (f) => {
-    if (!f.file_url) return
+    if (!f.id) return
     if (f.file_type === 'image') {
       window.open(f.file_url, '_blank', 'noreferrer')
     } else {
-      blobOpen(f, false)
+      window.open(proxyUrl(f), '_blank', 'noreferrer')
     }
   }
 
   const downloadFile = (f) => {
-    if (!f.file_url) return
-    blobOpen(f, true)
+    if (!f.id) return
+    if (f.file_type === 'image') {
+      const a = document.createElement('a')
+      a.href = f.file_url; a.download = f.name; a.target = '_blank'
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    } else {
+      const a = document.createElement('a')
+      a.href = proxyUrl(f, true); a.download = f.name
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    }
   }
+
+  const noteBodyWordCount = countWords(noteForm.body)
+  const isBodyTooLong = noteBodyWordCount > BODY_WORD_LIMIT
 
   if (loading) return <div className="spinner" />
 
@@ -188,52 +198,135 @@ export default function Files() {
       <div className="card">
         <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>Text Notes</div>
         <form onSubmit={addNote} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-          <input placeholder="Note heading…" value={noteForm.heading} onChange={e => setNoteForm({...noteForm,heading:e.target.value})} required />
-          <textarea placeholder="Body (optional)…" value={noteForm.body} onChange={e => setNoteForm({...noteForm,body:e.target.value})} rows={3} style={{ resize: 'vertical' }} />
+          <input
+            placeholder="Note heading (title)…"
+            value={noteForm.heading}
+            onChange={e => { const v = e.target.value; setNoteForm(prev => ({...prev, heading: v})) }}
+            required
+          />
+          <div style={{ position: 'relative' }}>
+            <textarea
+              placeholder="Body (optional — supports 1000+ words)…"
+              value={noteForm.body}
+              onChange={e => { const v = e.target.value; noteBodyRef.current = v; setNoteForm(prev => ({...prev, body: v})) }}
+              style={{
+                resize: 'vertical',
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '10px 12px 28px 12px',
+                minHeight: 220,
+                maxHeight: '55vh',
+                overflowY: 'auto',
+                fontFamily: 'inherit',
+                fontSize: 14,
+                lineHeight: 1.7,
+              }}
+            />
+            <div style={{
+              position: 'absolute', bottom: 6, right: 8,
+              fontSize: 11,
+              color: isBodyTooLong ? 'var(--accent)' : 'var(--text3)'
+            }}>
+              {noteBodyWordCount} words
+            </div>
+          </div>
+          {isBodyTooLong && (
+            <p style={{ fontSize: 12, color: 'var(--accent)', margin: '-4px 0 0' }}>
+              💡 Long note — heading will show as a collapsed card; tap to expand body.
+            </p>
+          )}
           <button className="btn-primary" style={{ alignSelf: 'flex-start' }}>+ Add Note</button>
         </form>
 
         {notes.length === 0 && <div className="empty" style={{ padding: '16px 0' }}>No notes yet.</div>}
 
-        {notes.map(n => (
-          <div key={n.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12 }}>
-            {editNoteId === n.id ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <input value={editNoteForm.heading} onChange={e => setEditNoteForm({...editNoteForm,heading:e.target.value})} />
-                <textarea value={editNoteForm.body} onChange={e => setEditNoteForm({...editNoteForm,body:e.target.value})} rows={4} style={{ resize: 'vertical' }} />
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn-success btn-sm" onClick={() => saveEditNote(n.id)}>Save</button>
-                  <button className="btn-secondary btn-sm" onClick={() => setEditNoteId(null)}>Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                  <strong style={{ fontSize: 15, flex: 1 }}>{n.heading}</strong>
-                  <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-                    <button className="btn-icon btn-sm" title="Copy heading" onClick={() => copy(n.heading)}>📋</button>
-                    <button className="btn-icon btn-sm" onClick={() => { setEditNoteId(n.id); setEditNoteForm({heading:n.heading,body:n.body}) }}>✏️</button>
-                    <button className="btn-icon btn-sm" onClick={() => deleteNote(n.id)}>🗑️</button>
+        {notes.map(n => {
+          const isLong = countWords(n.body) > BODY_WORD_LIMIT
+          const isExpanded = expandedNotes[n.id]
+
+          return (
+            <div key={n.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12 }}>
+              {editNoteId === n.id ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <input value={editNoteForm.heading} onChange={e => setEditNoteForm({...editNoteForm, heading: e.target.value})} />
+                  <textarea value={editNoteForm.body} onChange={e => setEditNoteForm({...editNoteForm, body: e.target.value})} rows={6} style={{ resize: 'vertical' }} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-success btn-sm" onClick={() => saveEditNote(n.id)}>Save</button>
+                    <button className="btn-secondary btn-sm" onClick={() => setEditNoteId(null)}>Cancel</button>
                   </div>
                 </div>
-                {n.body && (
-                  <div style={{ position: 'relative', marginTop: 6 }}>
-                    <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, paddingRight: 32 }}>{n.body}</pre>
-                    <button
-                      className="btn-icon btn-sm"
-                      title="Copy body"
-                      onClick={() => copy(n.body)}
-                      style={{ position: 'absolute', top: 0, right: 0 }}
-                    >📋</button>
+              ) : (
+                <div>
+                  {/* Heading row — always visible, clickable to expand if long body */}
+                  <div
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
+                      cursor: isLong ? 'pointer' : 'default',
+                    }}
+                    onClick={isLong ? () => toggleExpand(n.id) : undefined}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                      {isLong && (
+                        <span style={{ fontSize: 13, color: 'var(--accent)', flexShrink: 0 }}>
+                          {isExpanded ? '▼' : '▶'}
+                        </span>
+                      )}
+                      <strong style={{ fontSize: 15, flex: 1, wordBreak: 'break-word' }}>{n.heading}</strong>
+                      {isLong && !isExpanded && (
+                        <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                          {countWords(n.body)} words
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                      <button className="btn-icon btn-sm" title="Copy heading" onClick={() => copy(n.heading)}>📋</button>
+                      {(!isLong || isExpanded) && n.body && (
+                        <button className="btn-icon btn-sm" title="Copy body" onClick={() => copy(n.body)}>📄</button>
+                      )}
+                      <button className="btn-icon btn-sm" onClick={() => { setEditNoteId(n.id); setEditNoteForm({heading: n.heading, body: n.body}) }}>✏️</button>
+                      <button className="btn-icon btn-sm" onClick={() => deleteNote(n.id)}>🗑️</button>
+                    </div>
                   </div>
-                )}
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
-                  {new Date(n.updated_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+
+                  {/* Body — always show if short; show/hide if long */}
+                  {n.body && (!isLong || isExpanded) && (
+                    <div style={{ position: 'relative', marginTop: 8 }}>
+                      <pre style={{
+                        whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13,
+                        color: 'var(--text2)', lineHeight: 1.7, paddingRight: 8,
+                        maxHeight: isLong ? '60vh' : 'none',
+                        overflowY: isLong ? 'auto' : 'visible',
+                        background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px',
+                      }}>
+                        {n.body}
+                      </pre>
+                      {isLong && (
+                        <button
+                          className="btn-secondary btn-sm"
+                          style={{ marginTop: 6, width: '100%' }}
+                          onClick={() => toggleExpand(n.id)}
+                        >
+                          ▲ Collapse
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Short preview for collapsed long notes */}
+                  {n.body && isLong && !isExpanded && (
+                    <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4, fontStyle: 'italic' }}>
+                      {n.body.slice(0, 80).trim()}…
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                    {new Date(n.updated_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

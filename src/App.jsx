@@ -21,14 +21,49 @@ const NAV_ITEMS = [
   { to: '/transactions',label: 'Money',        icon: '💰' },
 ]
 
+// ── Logout Confirmation Modal ─────────────────────────────────────────────────
+function LogoutModal({ onConfirm, onCancel }) {
+  return (
+    <div
+      className="modal-overlay"
+      onClick={e => { if (e.target === e.currentTarget) onCancel() }}
+      style={{ zIndex: 9999 }}
+    >
+      <div className="modal" style={{ maxWidth: 320, textAlign: 'center' }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>🚪</div>
+        <div className="modal-title" style={{ marginBottom: 8 }}>Log out?</div>
+        <p style={{ color: 'var(--text2)', fontSize: 14, marginBottom: 20 }}>
+          Are you sure you want to log out of PersonalHub?
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          <button className="btn-secondary" onClick={onCancel} style={{ flex: 1 }}>Cancel</button>
+          <button className="btn-danger" onClick={onConfirm} style={{ flex: 1 }}>Log out</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Nav() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const handleLogout = async () => { await logout(); navigate('/login') }
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
+
+  const handleLogoutClick = () => setShowLogoutModal(true)
+  const handleLogoutConfirm = async () => {
+    setShowLogoutModal(false)
+    await logout()
+    navigate('/login')
+  }
+  const handleLogoutCancel = () => setShowLogoutModal(false)
 
   return (
     <>
+      {showLogoutModal && (
+        <LogoutModal onConfirm={handleLogoutConfirm} onCancel={handleLogoutCancel} />
+      )}
+
       {/* Desktop / tablet top nav */}
       <nav className="nav">
         <span className="nav-brand">PersonalHub</span>
@@ -46,7 +81,7 @@ function Nav() {
         </div>
         <div className="nav-right">
           <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/profile">⚙️</NavLink>
-          <button className="btn-secondary btn-sm" onClick={handleLogout}>Logout</button>
+          <button className="btn-secondary btn-sm" onClick={handleLogoutClick}>Logout</button>
         </div>
       </nav>
 
@@ -66,7 +101,7 @@ function Nav() {
             <span className="bnav-icon">⚙️</span>
             Profile
           </button>
-          <button className="bnav-btn" onClick={handleLogout} style={{ color: 'var(--red)' }}>
+          <button className="bnav-btn" onClick={handleLogoutClick} style={{ color: 'var(--red)' }}>
             <span className="bnav-icon">🚪</span>
             Logout
           </button>
