@@ -155,11 +155,11 @@ export default function Routine() {
       {/* Header with day/date */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
         <div>
-          <h1 className="page-title" style={{ marginBottom: 2 }}>🔁 Daily Routine</h1>
+          <h1 className="page-title" style={{ marginBottom: 2 }}>🔁 <span className="title-text">Daily Routine</span></h1>
           <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>{todayLabel}</div>
         </div>
         <button className="btn-secondary btn-sm" onClick={openHistory} style={{ flexShrink: 0, marginTop: 4 }}>
-          📅 History
+          <span>📅</span> History
         </button>
       </div>
 
@@ -188,19 +188,16 @@ export default function Routine() {
               borderLeft: `3px solid ${log.completed ? 'var(--green)' : 'var(--border)'}`,
               transition: 'border-color .2s',
             }}>
-              <div onClick={() => toggle(log.id)} style={{
-                width: 24, height: 24, borderRadius: '50%', flexShrink: 0, cursor: 'pointer',
-                background: log.completed ? 'var(--green)' : 'var(--surface3)',
-                border: log.completed ? 'none' : '2px solid var(--border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all .2s', fontSize: 13, color: '#fff',
-              }}>{log.completed && '✓'}</div>
+              <button className={`check-circle${log.completed ? ' done' : ''}`}
+                onClick={() => toggle(log.id)} title="Toggle">
+                {log.completed ? '✓' : ''}
+              </button>
               <span style={{
                 flex: 1, fontWeight: 500,
                 textDecoration: log.completed ? 'line-through' : 'none',
                 color: log.completed ? 'var(--text2)' : 'var(--text)',
               }}>{log.routine_task_title}</span>
-              {log.completed && <span style={{ color: 'var(--green)', fontSize: 16 }}>✅</span>}
+
             </div>
           ))}
         </div>
@@ -259,7 +256,7 @@ export default function Routine() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 18, color: 'var(--text3)', cursor: 'grab', userSelect: 'none', flexShrink: 0 }} title="Drag to reorder">≡</span>
+                  <span className="drag-handle">≡</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, fontSize: 14 }}>{rt.title}</div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>

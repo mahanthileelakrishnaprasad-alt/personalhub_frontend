@@ -32,7 +32,7 @@ export default function Dashboard() {
   const [tasks, setTasks] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [catFilter, setCatFilter] = useState('')
+  const [catFilter, setCatFilter] = useState('none')
   const emptyForm = (catId = '') => ({ title: '', note: '', reminder_at: '', category: catId })
   const [form, setForm] = useState(emptyForm())
   const [editId, setEditId] = useState(null)
@@ -124,7 +124,7 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 2 }}>✅ Tasks</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 2 }}>✅ <span className="title-text">Tasks</span></h1>
           <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
             {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </div>
@@ -182,11 +182,10 @@ export default function Dashboard() {
               onDragEnter={() => handleDragEnter(idx)}
               onDragEnd={handleDragEnd}
               onDragOver={e => e.preventDefault()}
-              className="card"
+              className="task-card"
               style={{
-                padding: '13px 15px',
-                opacity: draggingIdx === idx ? 0.45 : 1,
-                transition: 'opacity .15s',
+                opacity: draggingIdx === idx ? 0.35 : 1,
+                transition: 'opacity .15s, transform .15s',
                 cursor: 'default',
               }}
             >
@@ -209,10 +208,7 @@ export default function Dashboard() {
               ) : (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                   {/* Drag handle */}
-                  <span
-                    style={{ fontSize: 18, color: 'var(--text3)', cursor: 'grab', flexShrink: 0, marginTop: 1, userSelect: 'none', touchAction: 'none' }}
-                    title="Drag to reorder"
-                  >≡</span>
+                  <span className="drag-handle" title="Drag to reorder">≡</span>
                   {/* Number */}
                   <div style={{
                     minWidth: 22, height: 22, borderRadius: 6, background: 'var(--bg2)',
@@ -220,10 +216,7 @@ export default function Dashboard() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1,
                   }}>{idx + 1}</div>
                   {/* Complete */}
-                  <div onClick={() => complete(t.id)} style={{
-                    width: 22, height: 22, borderRadius: '50%', border: '2px solid var(--border)',
-                    cursor: 'pointer', flexShrink: 0, marginTop: 1, background: 'var(--surface3)',
-                  }} title="Mark complete" />
+                  <button className="check-circle" onClick={() => complete(t.id)} title="Mark complete" />
                   {/* Content */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, wordBreak: 'break-word' }}>{t.title}</div>

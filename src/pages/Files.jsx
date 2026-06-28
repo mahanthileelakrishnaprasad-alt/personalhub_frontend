@@ -138,17 +138,17 @@ export default function Files() {
 
   return (
     <div className="page">
-      <h1 className="page-title">📁 Files & Notes</h1>
+      <h1 className="page-title">📁 <span className="title-text">Files & Notes</span></h1>
 
       {/* ══ FILES SECTION ══ */}
       <div className="card" style={{ marginBottom: 18 }}>
         {/* Breadcrumb + controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>📁 Files</span>
+        <div className="breadcrumb" style={{ marginBottom: 14 }}>
+          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>📁 Files</span>
           {fileFolder && fileFolder !== 'none' && (
             <>
-              <span style={{ color: 'var(--text3)' }}>›</span>
-              <span style={{ fontWeight: 600, color: 'var(--accent)' }}>{currentFileFolderName || 'Folder'}</span>
+              <span className="breadcrumb-sep">›</span>
+              <span className="breadcrumb-active">{currentFileFolderName || 'Folder'}</span>
               <button className="btn-secondary btn-xs" onClick={() => setFileFolder('none')}>← Back</button>
             </>
           )}
@@ -168,11 +168,7 @@ export default function Files() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             {fileFolders.map(f => (
               <div key={f.id} onClick={() => setFileFolder(f.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
-                  background: 'var(--bg2)', borderRadius: 10, cursor: 'pointer',
-                  border: '1.5px solid var(--border)', transition: 'all .15s',
-                }}>
+                className="folder-card">
                 <span style={{ fontSize: 20 }}>📂</span>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{f.name}</div>
@@ -231,12 +227,12 @@ export default function Files() {
 
       {/* ══ NOTES SECTION ══ */}
       <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>📝 Text Notes</span>
+        <div className="breadcrumb" style={{ marginBottom: 14 }}>
+          <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>📝 Text Notes</span>
           {noteFolder && noteFolder !== 'none' && (
             <>
-              <span style={{ color: 'var(--text3)' }}>›</span>
-              <span style={{ fontWeight: 600, color: 'var(--accent)' }}>{currentNoteFolderName || 'Folder'}</span>
+              <span className="breadcrumb-sep">›</span>
+              <span className="breadcrumb-active">{currentNoteFolderName || 'Folder'}</span>
               <button className="btn-secondary btn-xs" onClick={() => setNoteFolder('none')}>← Back</button>
             </>
           )}
@@ -256,11 +252,7 @@ export default function Files() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
             {noteFolders.map(f => (
               <div key={f.id} onClick={() => setNoteFolder(f.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
-                  background: 'var(--bg2)', borderRadius: 10, cursor: 'pointer',
-                  border: '1.5px solid var(--border)', transition: 'all .15s',
-                }}>
+                className="folder-card">
                 <span style={{ fontSize: 20 }}>📂</span>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{f.name}</div>
@@ -308,7 +300,7 @@ export default function Files() {
               ) : (
                 <div>
                   {/* Heading row — always clickable to expand */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+                  <div className="note-card-header"
                     onClick={() => toggleNote(n.id)}>
                     <span style={{ fontSize: 13, color: 'var(--accent)', flexShrink: 0 }}>{expanded ? '▼' : '▶'}</span>
                     <strong style={{ flex: 1, fontSize: 14, wordBreak: 'break-word' }}>{n.heading}</strong>

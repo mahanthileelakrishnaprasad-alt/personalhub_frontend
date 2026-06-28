@@ -52,11 +52,7 @@ function CalcKeyboard({ value, onChange, onClose }) {
   }
 
   return (
-    <div style={{
-      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999,
-      background: 'var(--surface)', borderTop: '1px solid var(--border)',
-      padding: '12px 12px 24px', boxShadow: '0 -4px 24px rgba(0,0,0,.3)',
-    }}>
+    <div className="calc-overlay">
       {/* Expression display */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <div style={{
@@ -177,7 +173,7 @@ export default function Transactions() {
   return (
     <div className="page" style={{ paddingBottom: showCalc ? 320 : undefined }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <h1 className="page-title" style={{ margin: 0 }}>💰 Transactions</h1>
+        <h1 className="page-title" style={{ margin: 0 }}>💰 <span className="title-text">Transactions</span></h1>
         <button className="btn-secondary btn-sm" onClick={openHistory}>🗑️ History</button>
       </div>
 

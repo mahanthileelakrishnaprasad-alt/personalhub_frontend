@@ -29,10 +29,10 @@ function LogoutModal({ onConfirm, onCancel }) {
       onClick={e => { if (e.target === e.currentTarget) onCancel() }}
       style={{ zIndex: 9999 }}
     >
-      <div className="modal" style={{ maxWidth: 320, textAlign: 'center' }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>🚪</div>
-        <div className="modal-title" style={{ marginBottom: 8 }}>Log out?</div>
-        <p style={{ color: 'var(--text2)', fontSize: 14, marginBottom: 20 }}>
+      <div className="modal" style={{ maxWidth: 340, textAlign: 'center' }}>
+        <div className="logout-modal-icon">🚪</div>
+        <div className="modal-title" style={{ marginBottom: 8, fontSize: 20 }}>Log out?</div>
+        <p style={{ color: 'var(--text2)', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
           Are you sure you want to log out of PersonalHub?
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
