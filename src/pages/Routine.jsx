@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import api from '../api/client'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -77,6 +77,22 @@ export default function Routine() {
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({})
   const [showManage, setShowManage] = useState(false)
+  const [draggingRt, setDraggingRt] = useState(null)
+  const dragIdx = useRef(null)
+  const dragOver = useRef(null)
+
+  const handleRtDragEnd = async () => {
+    setDraggingRt(null)
+    if (dragIdx.current === null || dragOver.current === null || dragIdx.current === dragOver.current) {
+      dragIdx.current = dragOver.current = null; return
+    }
+    const next = [...routineTasks]
+    const [moved] = next.splice(dragIdx.current, 1)
+    next.splice(dragOver.current, 0, moved)
+    dragIdx.current = dragOver.current = null
+    setRoutineTasks(next)
+    await api.post('routine/reorder/', { ordered_ids: next.map(t => t.id) })
+  }
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -218,8 +234,15 @@ export default function Routine() {
 
           {routineTasks.length === 0 && <div className="empty" style={{ padding: '12px 0' }}>No habits yet.</div>}
 
-          {routineTasks.map(rt => (
-            <div key={rt.id} style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 10 }}>
+          {routineTasks.map((rt, idx) => (
+            <div key={rt.id}
+              draggable={editId !== rt.id}
+              onDragStart={() => { dragIdx.current = idx; setDraggingRt(idx) }}
+              onDragEnter={() => { dragOver.current = idx }}
+              onDragEnd={handleRtDragEnd}
+              onDragOver={e => e.preventDefault()}
+              style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 10, opacity: draggingRt === idx ? 0.4 : 1, transition: 'opacity .15s' }}
+            >
               {editId === rt.id ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} />
@@ -236,6 +259,7 @@ export default function Routine() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 18, color: 'var(--text3)', cursor: 'grab', userSelect: 'none', flexShrink: 0 }} title="Drag to reorder">≡</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, fontSize: 14 }}>{rt.title}</div>
                     <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>

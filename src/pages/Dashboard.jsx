@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import api from '../api/client'
 
 function fmtDate(s) {
@@ -7,6 +7,26 @@ function fmtDate(s) {
 }
 
 const DEFAULT_CATS = ['Personal', 'Family', 'Study', 'Work', 'Health', 'Shopping']
+
+// ── Drag-handle sortable list ─────────────────────────────────────────────────
+function useDragSort(items, onReorder) {
+  const dragIdx = useRef(null)
+  const dragOver = useRef(null)
+
+  const onDragStart = (i) => { dragIdx.current = i }
+  const onDragEnter = (i) => { dragOver.current = i }
+  const onDragEnd   = () => {
+    if (dragIdx.current === null || dragOver.current === null || dragIdx.current === dragOver.current) {
+      dragIdx.current = dragOver.current = null; return
+    }
+    const next = [...items]
+    const [moved] = next.splice(dragIdx.current, 1)
+    next.splice(dragOver.current, 0, moved)
+    dragIdx.current = dragOver.current = null
+    onReorder(next)
+  }
+  return { onDragStart, onDragEnter, onDragEnd }
+}
 
 export default function Dashboard() {
   const [tasks, setTasks] = useState([])
@@ -24,16 +44,13 @@ export default function Dashboard() {
   const [editCatId, setEditCatId] = useState(null)
   const [editCatName, setEditCatName] = useState('')
   const [err, setErr] = useState('')
+  const [draggingIdx, setDraggingIdx] = useState(null)
 
   const load = async (filter = catFilter) => {
     const params = filter === 'none' ? '?category=none' : filter ? `?category=${filter}` : ''
-    const [t, c] = await Promise.all([
-      api.get(`tasks/${params}`),
-      api.get('tasks/categories/'),
-    ])
+    const [t, c] = await Promise.all([api.get(`tasks/${params}`), api.get('tasks/categories/')])
     setTasks(t.data); setCategories(c.data); setLoading(false)
   }
-
   useEffect(() => { load() }, [])
 
   const applyFilter = (v) => {
@@ -42,17 +59,32 @@ export default function Dashboard() {
     setForm(f => ({ ...f, category: !isNaN(numId) && numId > 0 ? String(numId) : '' }))
   }
 
-  const active = tasks.filter(t => !t.completed)
+  const active  = tasks.filter(t => !t.completed)
   const treasure = tasks.filter(t => t.completed)
+
+  // Drag-to-reorder for active tasks
+  const dragIdx  = useRef(null)
+  const dragOver = useRef(null)
+
+  const handleDragStart = (i) => { dragIdx.current = i; setDraggingIdx(i) }
+  const handleDragEnter = (i) => { dragOver.current = i }
+  const handleDragEnd   = async () => {
+    setDraggingIdx(null)
+    if (dragIdx.current === null || dragOver.current === null || dragIdx.current === dragOver.current) {
+      dragIdx.current = dragOver.current = null; return
+    }
+    const next = [...active]
+    const [moved] = next.splice(dragIdx.current, 1)
+    next.splice(dragOver.current, 0, moved)
+    dragIdx.current = dragOver.current = null
+    setTasks([...next, ...treasure])
+    await api.post('tasks/reorder/', { ordered_ids: next.map(t => t.id) })
+  }
 
   const addTask = async (e) => {
     e.preventDefault(); setErr('')
     try {
-      await api.post('tasks/', {
-        ...form,
-        reminder_at: form.reminder_at || null,
-        category: form.category || null,
-      })
+      await api.post('tasks/', { ...form, reminder_at: form.reminder_at || null, category: form.category || null })
       const numId = parseInt(catFilter)
       setForm(emptyForm(!isNaN(numId) && numId > 0 ? String(numId) : ''))
       setShowAddForm(false); load()
@@ -62,66 +94,21 @@ export default function Dashboard() {
   const complete = async (id) => { await api.post(`tasks/${id}/complete/`); load() }
   const restore  = async (id) => { await api.post(`tasks/${id}/restore/`); load() }
   const del      = async (id) => { if (!confirm('Delete task?')) return; await api.delete(`tasks/${id}/`); load() }
-
-  const moveTask = async (index, dir) => {
-    // dir: -1 = up, +1 = down
-    const newActive = [...active]
-    const swapIdx = index + dir
-    if (swapIdx < 0 || swapIdx >= newActive.length) return
-    ;[newActive[index], newActive[swapIdx]] = [newActive[swapIdx], newActive[index]]
-    const ordered_ids = newActive.map(t => t.id)
-    // Optimistic update
-    setTasks(prev => {
-      const completed = prev.filter(t => t.completed)
-      return [...newActive, ...completed]
-    })
-    await api.post('tasks/reorder/', { ordered_ids })
-  }
-
-  const delAllTreasure = async () => {
-    if (!confirm('Permanently delete all completed tasks?')) return
-    await api.delete('tasks/treasure/delete-all/'); load()
-  }
+  const delAllTreasure = async () => { if (!confirm('Delete all completed tasks?')) return; await api.delete('tasks/treasure/delete-all/'); load() }
 
   const startEdit = (t) => {
     setEditId(t.id)
-    setEditForm({
-      title: t.title, note: t.note || '',
-      reminder_at: t.reminder_at ? t.reminder_at.slice(0, 16) : '',
-      category: t.category ? String(t.category) : '',
-    })
+    setEditForm({ title: t.title, note: t.note || '', reminder_at: t.reminder_at ? t.reminder_at.slice(0,16) : '', category: t.category ? String(t.category) : '' })
   }
-
   const saveEdit = async (id) => {
-    await api.patch(`tasks/${id}/`, {
-      ...editForm,
-      reminder_at: editForm.reminder_at || null,
-      category: editForm.category || null,
-    })
+    await api.patch(`tasks/${id}/`, { ...editForm, reminder_at: editForm.reminder_at || null, category: editForm.category || null })
     setEditId(null); load()
   }
 
-  // Category management
-  const addCat = async (e) => {
-    e.preventDefault()
-    await api.post('tasks/categories/', { name: newCatName })
-    setNewCatName(''); load()
-  }
-  const saveCat = async (id) => {
-    await api.patch(`tasks/categories/${id}/`, { name: editCatName })
-    setEditCatId(null); load()
-  }
-  const deleteCat = async (id) => {
-    if (!confirm('Delete category? Tasks become Uncategorized.')) return
-    await api.delete(`tasks/categories/${id}/`); load()
-  }
-
-  const seedDefaultCats = async () => {
-    for (const name of DEFAULT_CATS) {
-      try { await api.post('tasks/categories/', { name }) } catch {}
-    }
-    load()
-  }
+  const addCat = async (e) => { e.preventDefault(); await api.post('tasks/categories/', { name: newCatName }); setNewCatName(''); load() }
+  const saveCat = async (id) => { await api.patch(`tasks/categories/${id}/`, { name: editCatName }); setEditCatId(null); load() }
+  const deleteCat = async (id) => { if (!confirm('Delete? Tasks become Uncategorized.')) return; await api.delete(`tasks/categories/${id}/`); load() }
+  const seedDefaultCats = async () => { for (const name of DEFAULT_CATS) { try { await api.post('tasks/categories/', { name }) } catch {} } load() }
 
   const CatSelect = ({ value, onChange }) => (
     <select value={value} onChange={e => onChange(e.target.value)}>
@@ -134,7 +121,7 @@ export default function Dashboard() {
 
   return (
     <div className="page">
-      {/* Header with day/date */}
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 2 }}>✅ Tasks</h1>
@@ -150,15 +137,13 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Category filter pills */}
+      {/* Category filter */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
         <button className={`btn-xs ${catFilter === '' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter('')}>All</button>
         <button className={`btn-xs ${catFilter === 'none' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter('none')}>Uncat.</button>
         {categories.map(c => (
-          <button key={c.id}
-            className={`btn-xs ${catFilter === String(c.id) ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => applyFilter(String(c.id))}
-          >{c.name}</button>
+          <button key={c.id} className={`btn-xs ${catFilter === String(c.id) ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => applyFilter(String(c.id))}>{c.name}</button>
         ))}
         <button className="btn-secondary btn-xs" style={{ marginLeft: 'auto' }} onClick={() => setShowCatModal(true)}>⚙️ Categories</button>
       </div>
@@ -173,14 +158,9 @@ export default function Dashboard() {
               <textarea placeholder="Note (optional)" value={form.note} rows={2} style={{ resize: 'vertical' }}
                 onChange={e => setForm(p => ({ ...p, note: e.target.value }))} />
               <div className="form-row">
-                <div>
-                  <label>Category</label>
-                  <CatSelect value={form.category} onChange={v => setForm(p => ({ ...p, category: v }))} />
-                </div>
-                <div>
-                  <label>Reminder (optional)</label>
-                  <input type="datetime-local" value={form.reminder_at}
-                    onChange={e => setForm(p => ({ ...p, reminder_at: e.target.value }))} />
+                <div><label>Category</label><CatSelect value={form.category} onChange={v => setForm(p => ({ ...p, category: v }))} /></div>
+                <div><label>Reminder</label>
+                  <input type="datetime-local" value={form.reminder_at} onChange={e => setForm(p => ({ ...p, reminder_at: e.target.value }))} />
                 </div>
               </div>
               {err && <p className="msg-error">{err}</p>}
@@ -190,27 +170,35 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Active tasks */}
+      {/* Active tasks — draggable */}
       {active.length === 0 ? (
         <div className="empty">No active tasks! Click "+ Add Task" to start. 🎯</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {active.map((t, idx) => (
-            <div key={t.id} className="card" style={{ padding: '13px 15px' }}>
+            <div key={t.id}
+              draggable={editId !== t.id}
+              onDragStart={() => handleDragStart(idx)}
+              onDragEnter={() => handleDragEnter(idx)}
+              onDragEnd={handleDragEnd}
+              onDragOver={e => e.preventDefault()}
+              className="card"
+              style={{
+                padding: '13px 15px',
+                opacity: draggingIdx === idx ? 0.45 : 1,
+                transition: 'opacity .15s',
+                cursor: 'default',
+              }}
+            >
               {editId === t.id ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} />
                   <textarea value={editForm.note} rows={2} style={{ resize: 'vertical' }}
                     onChange={e => setEditForm(p => ({ ...p, note: e.target.value }))} />
                   <div className="form-row">
-                    <div>
-                      <label>Category</label>
-                      <CatSelect value={editForm.category} onChange={v => setEditForm(p => ({ ...p, category: v }))} />
-                    </div>
-                    <div>
-                      <label>Reminder</label>
-                      <input type="datetime-local" value={editForm.reminder_at}
-                        onChange={e => setEditForm(p => ({ ...p, reminder_at: e.target.value }))} />
+                    <div><label>Category</label><CatSelect value={editForm.category} onChange={v => setEditForm(p => ({ ...p, category: v }))} /></div>
+                    <div><label>Reminder</label>
+                      <input type="datetime-local" value={editForm.reminder_at} onChange={e => setEditForm(p => ({ ...p, reminder_at: e.target.value }))} />
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -220,20 +208,22 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  {/* Position number */}
+                  {/* Drag handle */}
+                  <span
+                    style={{ fontSize: 18, color: 'var(--text3)', cursor: 'grab', flexShrink: 0, marginTop: 1, userSelect: 'none', touchAction: 'none' }}
+                    title="Drag to reorder"
+                  >≡</span>
+                  {/* Number */}
                   <div style={{
-                    minWidth: 24, height: 24, borderRadius: 6, background: 'var(--bg2)',
+                    minWidth: 22, height: 22, borderRadius: 6, background: 'var(--bg2)',
                     color: 'var(--text3)', fontSize: 11, fontWeight: 700,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0, marginTop: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1,
                   }}>{idx + 1}</div>
-
-                  {/* Complete circle */}
+                  {/* Complete */}
                   <div onClick={() => complete(t.id)} style={{
                     width: 22, height: 22, borderRadius: '50%', border: '2px solid var(--border)',
                     cursor: 'pointer', flexShrink: 0, marginTop: 1, background: 'var(--surface3)',
                   }} title="Mark complete" />
-
                   {/* Content */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, wordBreak: 'break-word' }}>{t.title}</div>
@@ -247,16 +237,6 @@ export default function Dashboard() {
                         </span>
                       )}
                     </div>
-                  </div>
-
-                  {/* Up / Down / Edit / Delete */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
-                    <button className="btn-icon btn-sm" title="Move up"
-                      onClick={() => moveTask(idx, -1)} disabled={idx === 0}
-                      style={{ opacity: idx === 0 ? 0.3 : 1, fontSize: 12, padding: '2px 6px' }}>▲</button>
-                    <button className="btn-icon btn-sm" title="Move down"
-                      onClick={() => moveTask(idx, 1)} disabled={idx === active.length - 1}
-                      style={{ opacity: idx === active.length - 1 ? 0.3 : 1, fontSize: 12, padding: '2px 6px' }}>▼</button>
                   </div>
                   <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                     <button className="btn-icon btn-sm" onClick={() => startEdit(t)}>✏️</button>
@@ -291,16 +271,14 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 2 }}>
-                        <button className="btn-icon btn-sm" title="Restore" onClick={() => restore(t.id)}>↩️</button>
+                        <button className="btn-icon btn-sm" onClick={() => restore(t.id)}>↩️</button>
                         <button className="btn-icon btn-sm" onClick={() => del(t.id)}>🗑️</button>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
-              <button className="btn-danger btn-sm" style={{ marginTop: 10 }} onClick={delAllTreasure}>
-                Delete All Treasure
-              </button>
+              <button className="btn-danger btn-sm" style={{ marginTop: 10 }} onClick={delAllTreasure}>Delete All Treasure</button>
             </>
           )}
         </div>
@@ -315,32 +293,25 @@ export default function Dashboard() {
               <button className="btn-icon" onClick={() => setShowCatModal(false)}>✕</button>
             </div>
             <form onSubmit={addCat} style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-              <input placeholder="New category name" value={newCatName}
-                onChange={e => setNewCatName(e.target.value)} required />
+              <input placeholder="New category name" value={newCatName} onChange={e => setNewCatName(e.target.value)} required />
               <button className="btn-primary btn-sm" style={{ flexShrink: 0 }}>+ Add</button>
             </form>
             {categories.length === 0 && (
               <div style={{ marginBottom: 12 }}>
                 <p style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 8 }}>No categories yet.</p>
-                <button className="btn-secondary btn-sm" onClick={seedDefaultCats}>
-                  ✨ Add defaults (Personal, Family, Study…)
-                </button>
+                <button className="btn-secondary btn-sm" onClick={seedDefaultCats}>✨ Add defaults</button>
               </div>
             )}
             {categories.map(c => (
               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
                 {editCatId === c.id ? (
-                  <>
-                    <input value={editCatName} onChange={e => setEditCatName(e.target.value)} style={{ flex: 1 }} />
-                    <button className="btn-success btn-sm" onClick={() => saveCat(c.id)}>Save</button>
-                    <button className="btn-secondary btn-sm" onClick={() => setEditCatId(null)}>✕</button>
-                  </>
+                  <><input value={editCatName} onChange={e => setEditCatName(e.target.value)} style={{ flex: 1 }} />
+                  <button className="btn-success btn-sm" onClick={() => saveCat(c.id)}>Save</button>
+                  <button className="btn-secondary btn-sm" onClick={() => setEditCatId(null)}>✕</button></>
                 ) : (
-                  <>
-                    <span style={{ flex: 1 }}>{c.name}</span>
-                    <button className="btn-icon btn-sm" onClick={() => { setEditCatId(c.id); setEditCatName(c.name) }}>✏️</button>
-                    <button className="btn-icon btn-sm" onClick={() => deleteCat(c.id)}>🗑️</button>
-                  </>
+                  <><span style={{ flex: 1 }}>{c.name}</span>
+                  <button className="btn-icon btn-sm" onClick={() => { setEditCatId(c.id); setEditCatName(c.name) }}>✏️</button>
+                  <button className="btn-icon btn-sm" onClick={() => deleteCat(c.id)}>🗑️</button></>
                 )}
               </div>
             ))}

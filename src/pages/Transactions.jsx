@@ -1,142 +1,79 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import api from '../api/client'
 
-// ── Calculator-style Amount Input ─────────────────────────────────────────────
-// Operator buttons styled like a compact calculator row
-function AmountInput({ value, onChange, placeholder = '0.00' }) {
-  const [op, setOp] = useState(null)
-  const [base, setBase] = useState(null)
-  const [display, setDisplay] = useState(value || '')
+// ── Calculator Keyboard ───────────────────────────────────────────────────────
+function CalcKeyboard({ value, onChange, onClose }) {
+  const [expr, setExpr] = useState(value ? String(value) : '')
+  const inputRef = useRef()
 
-  useEffect(() => {
-    if (op === null) setDisplay(value || '')
-  }, [value])
-
-  const ops = [
-    { sym: '+', label: '+' },
-    { sym: '-', label: '−' },
-    { sym: '*', label: '×' },
-    { sym: '/', label: '÷' },
-  ]
-
-  const applyCalc = (curBase, curOp, curDisplay) => {
-    const operand = parseFloat(curDisplay) || 0
-    let result = curBase
-    if (curOp === '+') result = curBase + operand
-    if (curOp === '-') result = curBase - operand
-    if (curOp === '*') result = curBase * operand
-    if (curOp === '/' && operand !== 0) result = curBase / operand
-    return String(Math.round(result * 100) / 100)
+  const evaluate = (e) => {
+    try {
+      // Safe eval: only allow digits, operators, dot, parens
+      const safe = e.replace(/[^0-9+\-*/().]/g, '')
+      // eslint-disable-next-line no-new-func
+      const result = Function(`"use strict"; return (${safe})`)()
+      if (isFinite(result)) return String(Math.round(result * 100) / 100)
+    } catch {}
+    return e
   }
 
-  const selectOp = (sym) => {
-    if (op === null) {
-      const cur = parseFloat(display) || 0
-      setBase(cur); setOp(sym); setDisplay('')
-    } else {
-      if (display !== '') {
-        const result = applyCalc(base, op, display)
-        setBase(parseFloat(result) || 0); setOp(sym); setDisplay('')
-        onChange(result)
-      } else {
-        setOp(sym)
-      }
+  const press = (key) => {
+    if (key === 'DEL') { setExpr(p => p.slice(0, -1)); return }
+    if (key === 'CLR') { setExpr(''); return }
+    if (key === '=') {
+      const result = evaluate(expr)
+      setExpr(result)
+      onChange(result)
+      return
+    }
+    if (key === '±') { setExpr(p => p.startsWith('-') ? p.slice(1) : '-' + p); return }
+    setExpr(p => p + key)
+  }
+
+  const rows = [
+    ['7','8','9','DEL'],
+    ['4','5','6','*'],
+    ['1','2','3','-'],
+    ['0','.','±','+'],
+    ['(',')','/','='],
+  ]
+
+  const keyStyle = (k) => {
+    const isOp = ['+','-','*','/','(',')','±'].includes(k)
+    const isDel = k === 'DEL' || k === 'CLR'
+    const isEq  = k === '='
+    return {
+      height: 48, borderRadius: 10, border: 'none', cursor: 'pointer',
+      fontWeight: 700, fontSize: 16,
+      background: isEq ? 'var(--accent)' : isDel ? 'var(--red,#ef4444)' : isOp ? 'var(--bg2)' : 'var(--surface)',
+      color: isEq || isDel ? '#fff' : isOp ? 'var(--accent)' : 'var(--text)',
+      transition: 'opacity .1s',
     }
   }
 
-  const finishCalc = () => {
-    if (op === null || display === '') return
-    const final = applyCalc(base, op, display)
-    setOp(null); setBase(null); setDisplay(final)
-    onChange(final)
-  }
-
-  const handleChange = (v) => {
-    setDisplay(v)
-    if (op === null) onChange(v)
-  }
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && op !== null) { e.preventDefault(); finishCalc() }
-  }
-
   return (
-    <div>
-      {/* Pending expression indicator */}
-      {op && (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999,
+      background: 'var(--surface)', borderTop: '1px solid var(--border)',
+      padding: '12px 12px 24px', boxShadow: '0 -4px 24px rgba(0,0,0,.3)',
+    }}>
+      {/* Expression display */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <div style={{
-          fontSize: 12, color: 'var(--accent)', marginBottom: 6, fontWeight: 600,
-          background: 'var(--accent-glow)', padding: '4px 10px', borderRadius: 6,
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-        }}>
-          <span>{base}</span>
-          <span style={{ fontSize: 16 }}>{ops.find(o => o.sym === op)?.label}</span>
-          <span style={{ color: 'var(--text2)' }}>?</span>
-          <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 4 }}>↵ or = to apply</span>
-        </div>
-      )}
-
-      {/* Calculator row: [operator buttons] [number input] [= button] */}
-      <div style={{ display: 'flex', gap: 4, alignItems: 'stretch' }}>
-        {/* Operator pad */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2,
-          background: 'var(--bg2)', borderRadius: 8, padding: 3, border: '1px solid var(--border)',
-        }}>
-          {ops.map(o => (
-            <button
-              key={o.sym}
-              type="button"
-              onClick={() => selectOp(o.sym)}
-              style={{
-                width: 32, height: 32,
-                background: op === o.sym ? 'var(--accent)' : 'var(--bg)',
-                color: op === o.sym ? '#fff' : 'var(--accent)',
-                border: `1.5px solid ${op === o.sym ? 'var(--accent)' : 'var(--border)'}`,
-                borderRadius: 6,
-                fontWeight: 700, fontSize: 16,
-                cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.15s',
-                lineHeight: 1,
-              }}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Number input */}
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          placeholder={op ? 'second number…' : placeholder}
-          value={display}
-          onChange={e => handleChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          style={{ flex: 1, textAlign: 'right', fontWeight: 600, fontSize: 16 }}
-        />
-
-        {/* = button — only visible when op is active */}
-        {op && (
-          <button
-            type="button"
-            onClick={finishCalc}
-            style={{
-              width: 38, height: 38,
-              background: 'var(--green, #22c55e)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 8,
-              fontWeight: 700, fontSize: 18,
-              cursor: 'pointer',
-              flexShrink: 0,
-            }}
-          >
-            =
-          </button>
-        )}
+          flex: 1, background: 'var(--bg2)', borderRadius: 10, padding: '10px 14px',
+          fontSize: 18, fontWeight: 700, textAlign: 'right', minHeight: 44,
+          color: 'var(--text)', wordBreak: 'break-all', letterSpacing: 1,
+        }}>{expr || '0'}</div>
+        <button onClick={() => { onChange(evaluate(expr)); onClose() }}
+          style={{ padding: '10px 18px', background: 'var(--green,#22c55e)', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
+          Done ✓
+        </button>
+      </div>
+      {/* Key grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6 }}>
+        {rows.flat().map((k, i) => (
+          <button key={i} style={keyStyle(k)} onClick={() => press(k)}>{k}</button>
+        ))}
       </div>
     </div>
   )
@@ -147,12 +84,12 @@ export default function Transactions() {
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [catFilter, setCatFilter] = useState('')
+  const [showCalc, setShowCalc] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [history, setHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
 
-  // When catFilter is a numeric category id, auto-select it for new transactions
-  const emptyForm = (catId = '') => ({
-    title: '', amount: '', transaction_type: 'expense', note: '',
-    category: catId, new_category: ''
-  })
+  const emptyForm = (catId = '') => ({ title: '', amount: '', transaction_type: 'expense', note: '', category: catId, new_category: '' })
   const [form, setForm] = useState(emptyForm())
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState({})
@@ -169,17 +106,17 @@ export default function Transactions() {
 
   useEffect(() => { load() }, [])
 
-  // When filter changes to a specific category, auto-fill form category
   const applyFilter = (v) => {
-    setCatFilter(v)
-    load(v)
-    // Auto-fill category on form if a real category is selected
+    setCatFilter(v); load(v)
     const numId = parseInt(v)
-    if (!isNaN(numId) && numId > 0) {
-      setForm(f => ({ ...f, category: String(numId) }))
-    } else {
-      setForm(f => ({ ...f, category: '' }))
-    }
+    if (!isNaN(numId) && numId > 0) setForm(f => ({ ...f, category: String(numId) }))
+    else setForm(f => ({ ...f, category: '' }))
+  }
+
+  const openHistory = async () => {
+    setShowHistory(true); setHistoryLoading(true)
+    try { const r = await api.get('transactions/history/'); setHistory(r.data) }
+    finally { setHistoryLoading(false) }
   }
 
   const addTx = async (e) => {
@@ -191,7 +128,6 @@ export default function Transactions() {
     } else if (!form.category) payload.category = null
     delete payload.new_category
     await api.post('transactions/', payload)
-    // Keep category auto-fill after add
     const numId = parseInt(catFilter)
     setForm(emptyForm(!isNaN(numId) && numId > 0 ? String(numId) : ''))
     load()
@@ -209,24 +145,24 @@ export default function Transactions() {
   }
 
   const deleteTx = async (id) => {
-    if (!confirm('Delete this transaction?')) return
+    if (!confirm('Move to history? (recoverable for 30 days)')) return
     await api.delete(`transactions/${id}/`); load()
   }
 
   const deleteAll = async () => {
-    if (!confirm('Delete ALL transactions?')) return
+    if (!confirm('Move ALL transactions to history?')) return
     await api.delete('transactions/delete-all/'); load()
   }
 
-  const addCat = async (e) => {
-    e.preventDefault()
-    await api.post('transactions/categories/', { name: newCatName })
-    setNewCatName(''); load()
-  }
+  const restoreTx = async (id) => { await api.post(`transactions/${id}/restore/`); openHistory(); load() }
+  const permanentDelete = async (id) => { if (!confirm('Permanently delete? Cannot undo.')) return; await api.delete(`transactions/${id}/permanent/`); openHistory() }
+
+  const addCat = async (e) => { e.preventDefault(); await api.post('transactions/categories/', { name: newCatName }); setNewCatName(''); load() }
   const saveCat = async (id) => { await api.patch(`transactions/categories/${id}/`, { name: editCatName }); setEditCatId(null); load() }
-  const deleteCat = async (id) => { if (!confirm('Delete? Txns become Uncategorized.')) return; await api.delete(`transactions/categories/${id}/`); load() }
+  const deleteCat = async (id) => { if (!confirm('Delete category?')) return; await api.delete(`transactions/categories/${id}/`); load() }
 
   const fmt = (n) => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 })
+  const fmtDate = (s) => new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 
   const CatSelect = ({ value, onChange }) => (
     <select value={value} onChange={e => onChange(e.target.value)}>
@@ -239,8 +175,11 @@ export default function Transactions() {
   if (loading) return <div className="spinner" />
 
   return (
-    <div className="page">
-      <h1 className="page-title">💰 Transactions</h1>
+    <div className="page" style={{ paddingBottom: showCalc ? 320 : undefined }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h1 className="page-title" style={{ margin: 0 }}>💰 Transactions</h1>
+        <button className="btn-secondary btn-sm" onClick={openHistory}>🗑️ History</button>
+      </div>
 
       {/* Summary */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -252,51 +191,64 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* Add transaction */}
+      {/* Add form */}
       <div className="card" style={{ marginBottom: 18 }}>
         <div style={{ fontWeight: 700, marginBottom: 12, fontSize: 15 }}>Add Transaction</div>
         <form onSubmit={addTx}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <input placeholder="Title (e.g. Grocery)" value={form.title} onChange={e => setForm({...form, title: e.target.value})} required />
+            <input placeholder="Title (e.g. Grocery)" value={form.title}
+              onChange={e => setForm(p => ({ ...p, title: e.target.value }))} required />
+            {/* Amount field — tapping opens calculator */}
             <div>
-              <label>Amount (₹) — use +−×÷ for quick math</label>
-              <AmountInput value={form.amount} onChange={v => setForm({...form, amount: v})} />
+              <label>Amount (₹) — tap to open calculator</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="text" inputMode="none" readOnly
+                  placeholder="Tap 🧮 to enter amount"
+                  value={form.amount}
+                  onClick={() => setShowCalc(true)}
+                  style={{ flex: 1, cursor: 'pointer', caretColor: 'transparent' }}
+                />
+                <button type="button" onClick={() => setShowCalc(true)}
+                  style={{ padding: '8px 12px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 18, cursor: 'pointer' }}>
+                  🧮
+                </button>
+              </div>
             </div>
             <div className="form-row">
               <div>
                 <label>Type</label>
-                <select value={form.transaction_type} onChange={e => setForm({...form, transaction_type: e.target.value})}>
+                <select value={form.transaction_type} onChange={e => setForm(p => ({ ...p, transaction_type: e.target.value }))}>
                   <option value="expense">Expense</option>
                   <option value="income">Income</option>
                 </select>
               </div>
               <div>
                 <label>Category</label>
-                <CatSelect value={form.category} onChange={v => setForm({...form, category: v, new_category: ''})} />
+                <CatSelect value={form.category} onChange={v => setForm(p => ({ ...p, category: v, new_category: '' }))} />
               </div>
             </div>
-            {form.category === '__new__' && <input placeholder="New category name" value={form.new_category} onChange={e => setForm({...form, new_category: e.target.value})} />}
-            <input placeholder="Note (optional)" value={form.note} onChange={e => setForm({...form, note: e.target.value})} />
-            <button className="btn-primary" style={{alignSelf:'flex-start'}} disabled={!form.title||!form.amount}>+ Add Transaction</button>
+            {form.category === '__new__' && <input placeholder="New category name" value={form.new_category} onChange={e => setForm(p => ({ ...p, new_category: e.target.value }))} />}
+            <input placeholder="Note (optional)" value={form.note} onChange={e => setForm(p => ({ ...p, note: e.target.value }))} />
+            <button className="btn-primary" style={{ alignSelf: 'flex-start' }} disabled={!form.title || !form.amount}>+ Add</button>
           </div>
         </form>
       </div>
 
       {/* Filter */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Filter:</span>
-        <button className={`btn-xs ${catFilter===''?'btn-primary':'btn-secondary'}`} onClick={()=>applyFilter('')}>All</button>
-        <button className={`btn-xs ${catFilter==='none'?'btn-primary':'btn-secondary'}`} onClick={()=>applyFilter('none')}>Uncat.</button>
+        <button className={`btn-xs ${catFilter === '' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter('')}>All</button>
+        <button className={`btn-xs ${catFilter === 'none' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter('none')}>Uncat.</button>
         {categories.map(c => (
-          <button key={c.id} className={`btn-xs ${catFilter===String(c.id)?'btn-primary':'btn-secondary'}`} onClick={()=>applyFilter(String(c.id))}>{c.name}</button>
+          <button key={c.id} className={`btn-xs ${catFilter === String(c.id) ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter(String(c.id))}>{c.name}</button>
         ))}
-        <button className="btn-secondary btn-xs" style={{marginLeft:'auto'}} onClick={()=>setShowCatModal(true)}>⚙️ Categories</button>
+        <button className="btn-secondary btn-xs" style={{ marginLeft: 'auto' }} onClick={() => setShowCatModal(true)}>⚙️ Categories</button>
       </div>
 
       {/* List */}
       {data.transactions.length === 0 ? <div className="empty">No transactions yet.</div> : (
         <div className="card">
-          <div style={{overflowX:'auto'}}>
+          <div style={{ overflowX: 'auto' }}>
             <table className="table">
               <thead><tr><th>Title</th><th>Amount</th><th>Cat.</th><th>Date</th><th></th></tr></thead>
               <tbody>
@@ -304,36 +256,32 @@ export default function Transactions() {
                   <tr key={t.id}>
                     {editId === t.id ? (
                       <td colSpan={5}>
-                        <div style={{display:'flex',flexDirection:'column',gap:8,padding:'4px 0'}}>
-                          <input value={editForm.title} onChange={e=>setEditForm({...editForm,title:e.target.value})} placeholder="Title" />
-                          <div>
-                            <label>Amount</label>
-                            <AmountInput value={editForm.amount} onChange={v=>setEditForm({...editForm,amount:v})} />
-                          </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0' }}>
+                          <input value={editForm.title} onChange={e => setEditForm(p => ({ ...p, title: e.target.value }))} />
+                          <input type="number" step="0.01" value={editForm.amount} onChange={e => setEditForm(p => ({ ...p, amount: e.target.value }))} />
                           <div className="form-row">
-                            <select value={editForm.transaction_type} onChange={e=>setEditForm({...editForm,transaction_type:e.target.value})}>
+                            <select value={editForm.transaction_type} onChange={e => setEditForm(p => ({ ...p, transaction_type: e.target.value }))}>
                               <option value="expense">Expense</option>
                               <option value="income">Income</option>
                             </select>
-                            <CatSelect value={editForm.category||''} onChange={v=>setEditForm({...editForm,category:v,new_category:''})} />
+                            <CatSelect value={editForm.category || ''} onChange={v => setEditForm(p => ({ ...p, category: v }))} />
                           </div>
-                          {editForm.category==='__new__' && <input placeholder="New category" value={editForm.new_category||''} onChange={e=>setEditForm({...editForm,new_category:e.target.value})} />}
-                          <input value={editForm.note||''} onChange={e=>setEditForm({...editForm,note:e.target.value})} placeholder="Note" />
-                          <div style={{display:'flex',gap:8}}>
-                            <button className="btn-success btn-sm" onClick={()=>saveTx(t.id)}>Save</button>
-                            <button className="btn-secondary btn-sm" onClick={()=>setEditId(null)}>Cancel</button>
+                          <input value={editForm.note || ''} onChange={e => setEditForm(p => ({ ...p, note: e.target.value }))} placeholder="Note" />
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="btn-success btn-sm" onClick={() => saveTx(t.id)}>Save</button>
+                            <button className="btn-secondary btn-sm" onClick={() => setEditId(null)}>Cancel</button>
                           </div>
                         </div>
                       </td>
                     ) : (<>
-                      <td style={{fontWeight:500}}>{t.title}{t.note && <div style={{fontSize:11,color:'var(--text2)',marginTop:2}}>{t.note}</div>}</td>
-                      <td><span className={t.transaction_type==='income'?'income-amount':'expense-amount'}>{t.transaction_type==='income'?'+':'-'}{fmt(t.amount)}</span></td>
-                      <td><span className="tag">{t.category_name||'—'}</span></td>
-                      <td style={{color:'var(--text2)',fontSize:12,whiteSpace:'nowrap'}}>{new Date(t.created_at).toLocaleDateString('en-IN')}</td>
+                      <td style={{ fontWeight: 500 }}>{t.title}{t.note && <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>{t.note}</div>}</td>
+                      <td><span className={t.transaction_type === 'income' ? 'income-amount' : 'expense-amount'}>{t.transaction_type === 'income' ? '+' : '-'}{fmt(t.amount)}</span></td>
+                      <td><span className="tag">{t.category_name || '—'}</span></td>
+                      <td style={{ color: 'var(--text2)', fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(t.created_at)}</td>
                       <td>
-                        <div style={{display:'flex',gap:2}}>
-                          <button className="btn-icon btn-sm" onClick={()=>{setEditId(t.id);setEditForm({title:t.title,amount:t.amount,transaction_type:t.transaction_type,note:t.note,category:t.category||''})}}>✏️</button>
-                          <button className="btn-icon btn-sm" onClick={()=>deleteTx(t.id)}>🗑️</button>
+                        <div style={{ display: 'flex', gap: 2 }}>
+                          <button className="btn-icon btn-sm" onClick={() => { setEditId(t.id); setEditForm({ title: t.title, amount: t.amount, transaction_type: t.transaction_type, note: t.note, category: t.category || '' }) }}>✏️</button>
+                          <button className="btn-icon btn-sm" onClick={() => deleteTx(t.id)}>🗑️</button>
                         </div>
                       </td>
                     </>)}
@@ -342,39 +290,83 @@ export default function Transactions() {
               </tbody>
             </table>
           </div>
-          <div style={{marginTop:12,textAlign:'right'}}>
-            <button className="btn-danger btn-sm" onClick={deleteAll}>Delete All</button>
+          <div style={{ marginTop: 12, textAlign: 'right' }}>
+            <button className="btn-danger btn-sm" onClick={deleteAll}>Move All to History</button>
           </div>
         </div>
       )}
 
       {/* Categories modal */}
       {showCatModal && (
-        <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)setShowCatModal(false)}}>
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowCatModal(false) }}>
           <div className="modal">
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
-              <div className="modal-title" style={{margin:0}}>Manage Categories</div>
-              <button className="btn-icon" onClick={()=>setShowCatModal(false)}>✕</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div className="modal-title" style={{ margin: 0 }}>Manage Categories</div>
+              <button className="btn-icon" onClick={() => setShowCatModal(false)}>✕</button>
             </div>
-            <form onSubmit={addCat} style={{display:'flex',gap:8,marginBottom:14}}>
-              <input placeholder="New category" value={newCatName} onChange={e=>setNewCatName(e.target.value)} required />
-              <button className="btn-primary btn-sm" style={{flexShrink:0}}>+ Add</button>
+            <form onSubmit={addCat} style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <input placeholder="New category" value={newCatName} onChange={e => setNewCatName(e.target.value)} required />
+              <button className="btn-primary btn-sm" style={{ flexShrink: 0 }}>+ Add</button>
             </form>
             {categories.map(c => (
-              <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderTop:'1px solid var(--border)'}}>
-                {editCatId===c.id ? (
-                  <><input value={editCatName} onChange={e=>setEditCatName(e.target.value)} style={{flex:1}} />
-                  <button className="btn-success btn-sm" onClick={()=>saveCat(c.id)}>Save</button>
-                  <button className="btn-secondary btn-sm" onClick={()=>setEditCatId(null)}>✕</button></>
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                {editCatId === c.id ? (
+                  <><input value={editCatName} onChange={e => setEditCatName(e.target.value)} style={{ flex: 1 }} />
+                  <button className="btn-success btn-sm" onClick={() => saveCat(c.id)}>Save</button>
+                  <button className="btn-secondary btn-sm" onClick={() => setEditCatId(null)}>✕</button></>
                 ) : (
-                  <><span style={{flex:1}}>{c.name}</span>
-                  <button className="btn-icon btn-sm" onClick={()=>{setEditCatId(c.id);setEditCatName(c.name)}}>✏️</button>
-                  <button className="btn-icon btn-sm" onClick={()=>deleteCat(c.id)}>🗑️</button></>
+                  <><span style={{ flex: 1 }}>{c.name}</span>
+                  <button className="btn-icon btn-sm" onClick={() => { setEditCatId(c.id); setEditCatName(c.name) }}>✏️</button>
+                  <button className="btn-icon btn-sm" onClick={() => deleteCat(c.id)}>🗑️</button></>
                 )}
               </div>
             ))}
           </div>
         </div>
+      )}
+
+      {/* History modal */}
+      {showHistory && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowHistory(false) }}>
+          <div className="modal" style={{ maxWidth: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, flexShrink: 0 }}>
+              <div className="modal-title" style={{ margin: 0 }}>🗑️ Deleted Transactions (30 days)</div>
+              <button className="btn-icon" onClick={() => setShowHistory(false)}>✕</button>
+            </div>
+            {historyLoading ? <div className="spinner" style={{ margin: '20px auto' }} /> :
+              history.length === 0 ? <div className="empty">No deleted transactions.</div> : (
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {history.map(t => (
+                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, fontSize: 14 }}>{t.title}</div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
+                        <span className={t.transaction_type === 'income' ? 'income-amount' : 'expense-amount'} style={{ fontSize: 13 }}>
+                          {t.transaction_type === 'income' ? '+' : '-'}{fmt(t.amount)}
+                        </span>
+                        {t.category_name && <span className="tag" style={{ fontSize: 11 }}>{t.category_name}</span>}
+                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>Deleted {fmtDate(t.deleted_at)}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      <button className="btn-success btn-sm" title="Restore" onClick={() => restoreTx(t.id)}>↩ Restore</button>
+                      <button className="btn-danger btn-sm" title="Delete forever" onClick={() => permanentDelete(t.id)}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Calculator keyboard */}
+      {showCalc && (
+        <CalcKeyboard
+          value={form.amount}
+          onChange={v => setForm(p => ({ ...p, amount: v }))}
+          onClose={() => setShowCalc(false)}
+        />
       )}
     </div>
   )
