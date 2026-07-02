@@ -80,6 +80,8 @@ export default function Transactions() {
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [catFilter, setCatFilter] = useState('')
+  const [showCharts, setShowCharts] = useState(false)
+  const [charts, setCharts] = useState(null)
   const [showCalc, setShowCalc] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [history, setHistory] = useState([])
@@ -91,6 +93,7 @@ export default function Transactions() {
   const [editForm, setEditForm] = useState({})
   const [showCatModal, setShowCatModal] = useState(false)
   const [newCatName, setNewCatName] = useState('')
+  const [newCatBudget, setNewCatBudget] = useState('')
   const [editCatId, setEditCatId] = useState(null)
   const [editCatName, setEditCatName] = useState('')
 
@@ -107,6 +110,11 @@ export default function Transactions() {
     const numId = parseInt(v)
     if (!isNaN(numId) && numId > 0) setForm(f => ({ ...f, category: String(numId) }))
     else setForm(f => ({ ...f, category: '' }))
+  }
+
+  const openCharts = async () => {
+    setShowCharts(true)
+    try { const r = await api.get('transactions/charts/'); setCharts(r.data) } catch {}
   }
 
   const openHistory = async () => {
@@ -153,7 +161,7 @@ export default function Transactions() {
   const restoreTx = async (id) => { await api.post(`transactions/${id}/restore/`); openHistory(); load() }
   const permanentDelete = async (id) => { if (!confirm('Permanently delete? Cannot undo.')) return; await api.delete(`transactions/${id}/permanent/`); openHistory() }
 
-  const addCat = async (e) => { e.preventDefault(); await api.post('transactions/categories/', { name: newCatName }); setNewCatName(''); load() }
+  const addCat = async (e) => { e.preventDefault(); await api.post('transactions/categories/', { name: newCatName, monthly_budget: newCatBudget||null }); setNewCatName(''); setNewCatBudget(''); load() }
   const saveCat = async (id) => { await api.patch(`transactions/categories/${id}/`, { name: editCatName }); setEditCatId(null); load() }
   const deleteCat = async (id) => { if (!confirm('Delete category?')) return; await api.delete(`transactions/categories/${id}/`); load() }
 
@@ -174,7 +182,10 @@ export default function Transactions() {
     <div className="page" style={{ paddingBottom: showCalc ? 320 : undefined }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h1 className="page-title" style={{ margin: 0 }}>💰 <span className="title-text">Transactions</span></h1>
-        <button className="btn-secondary btn-sm" onClick={openHistory}>🗑️ History</button>
+        <div style={{display:'flex',gap:6}}>
+          <button className="btn-secondary btn-sm" onClick={openCharts}>📊 Charts</button>
+          <button className="btn-secondary btn-sm" onClick={openHistory}>🗑️ History</button>
+        </div>
       </div>
 
       {/* Summary */}
@@ -236,7 +247,14 @@ export default function Transactions() {
         <button className={`btn-xs ${catFilter === '' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter('')}>All</button>
         <button className={`btn-xs ${catFilter === 'none' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter('none')}>Uncat.</button>
         {categories.map(c => (
-          <button key={c.id} className={`btn-xs ${catFilter === String(c.id) ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter(String(c.id))}>{c.name}</button>
+          <div key={c.id} style={{display:'flex',flexDirection:'column',gap:2}}>
+            <button className={`btn-xs ${catFilter === String(c.id) ? 'btn-primary' : 'btn-secondary'}`} onClick={() => applyFilter(String(c.id))}>{c.name}</button>
+            {c.monthly_budget && (
+              <div style={{width:'100%',height:2,background:'var(--surface3)',borderRadius:2}}>
+                <div style={{height:'100%',borderRadius:2,background:c.spent_this_month>=c.monthly_budget?'var(--red)':'var(--green)',width:`${Math.min(100,(c.spent_this_month/c.monthly_budget)*100)}%`}}/>
+              </div>
+            )}
+          </div>
         ))}
         <button className="btn-secondary btn-xs" style={{ marginLeft: 'auto' }} onClick={() => setShowCatModal(true)}>⚙️ Categories</button>
       </div>
@@ -302,6 +320,7 @@ export default function Transactions() {
             </div>
             <form onSubmit={addCat} style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
               <input placeholder="New category" value={newCatName} onChange={e => setNewCatName(e.target.value)} required />
+              <input type="number" placeholder="Budget ₹" value={newCatBudget} onChange={e=>setNewCatBudget(e.target.value)} style={{width:90}}/>
               <button className="btn-primary btn-sm" style={{ flexShrink: 0 }}>+ Add</button>
             </form>
             {categories.map(c => (
@@ -350,6 +369,67 @@ export default function Transactions() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Charts Modal */}
+      {showCharts && (
+        <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)setShowCharts(false)}}>
+          <div className="modal" style={{maxWidth:560,maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:16,flexShrink:0}}>
+              <div className="modal-title" style={{margin:0}}>📊 Spending Charts</div>
+              <button className="btn-icon" onClick={()=>setShowCharts(false)}>✕</button>
+            </div>
+            {!charts ? <div className="spinner" style={{margin:'20px auto'}}/> : (
+              <div style={{overflowY:'auto',flex:1}}>
+                {/* 30-day spending bar chart */}
+                <div style={{marginBottom:20}}>
+                  <div style={{fontWeight:600,marginBottom:10,fontSize:14}}>Last 30 Days</div>
+                  <div style={{display:'flex',alignItems:'flex-end',gap:2,height:80}}>
+                    {charts.daily.map((d,i)=>{
+                      const maxVal = Math.max(...charts.daily.map(x=>x.expense+x.income),1)
+                      const expH = (d.expense/maxVal)*76
+                      const incH = (d.income/maxVal)*76
+                      return (
+                        <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:1}} title={`${d.date}
+Income: ₹${d.income}
+Expense: ₹${d.expense}`}>
+                          {d.income>0 && <div style={{width:'100%',background:'var(--green)',borderRadius:'2px 2px 0 0',height:incH,opacity:.8}}/>}
+                          {d.expense>0 && <div style={{width:'100%',background:'var(--red)',borderRadius:d.income?'0':'2px 2px 0 0',height:expH,opacity:.8}}/>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div style={{display:'flex',gap:12,marginTop:8,fontSize:11}}>
+                    <span style={{color:'var(--green)'}}>▮ Income</span>
+                    <span style={{color:'var(--red)'}}>▮ Expense</span>
+                  </div>
+                </div>
+                {/* Category breakdown */}
+                {charts.by_category.length > 0 && (
+                  <div>
+                    <div style={{fontWeight:600,marginBottom:10,fontSize:14}}>This Month by Category</div>
+                    {charts.by_category.map((c,i)=>{
+                      const maxVal = charts.by_category[0].total
+                      const pct = Math.round((c.total/maxVal)*100)
+                      const colors=['#7c6af7','#5b8ef8','#10d9a0','#fbbf24','#f97316','#ec4899']
+                      return (
+                        <div key={i} style={{marginBottom:10}}>
+                          <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}>
+                            <span>{c.category__name||'Uncategorized'}</span>
+                            <span style={{color:'var(--red)',fontWeight:600}}>₹{Number(c.total).toLocaleString('en-IN')}</span>
+                          </div>
+                          <div className="progress-bar">
+                            <div className="progress-fill" style={{width:`${pct}%`,background:colors[i%colors.length]}}/>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>

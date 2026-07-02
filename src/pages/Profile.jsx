@@ -1,111 +1,176 @@
-import React, { useState } from 'react'
-import { useAuth } from '../App'
+import React, { useState, useEffect, useRef } from 'react'
 import api from '../api/client'
-
-const ADMIN_PHONE = '917013842905'
-const ADMIN_NAME  = 'M Leela Krishna Prasad'
+import { useAuth } from '../App'
 
 export default function Profile() {
-  const { user } = useAuth()
-  const profile = user?.profile || {}
-  const [email, setEmail] = useState(profile.reminder_email || '')
-  const [saved, setSaved] = useState(false)
-  const [err, setErr] = useState('')
+  const { user, setUser } = useAuth()
+  const [profile, setProfile] = useState(null)
+  const [stats, setStats]     = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving]   = useState(false)
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [theme, setTheme] = useState(localStorage.getItem('ph-theme')||'dark')
+  const avatarRef = useRef()
+  const [form, setForm] = useState({ reminder_email:'', bio:'' })
 
-  // WhatsApp contact form
-  const [waForm, setWaForm] = useState({ name: '', issue: '', details: '' })
+  useEffect(() => {
+    Promise.all([api.get('auth/profile/'), api.get('auth/stats/')])
+      .then(([p, s]) => {
+        setProfile(p.data); setStats(s.data)
+        setForm({ reminder_email: p.data.reminder_email||'', bio: p.data.bio||'' })
+        const t = p.data.theme || 'dark'
+        setTheme(t); applyTheme(t)
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const applyTheme = (t) => {
+    localStorage.setItem('ph-theme', t)
+    document.documentElement.setAttribute('data-theme', t)
+  }
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next); applyTheme(next)
+    api.patch('auth/profile/', { theme: next }).catch(()=>{})
+  }
 
   const saveProfile = async (e) => {
-    e.preventDefault(); setSaved(false); setErr('')
+    e.preventDefault(); setSaving(true); setMsg('')
     try {
-      await api.patch('auth/profile/', { reminder_email: email })
-      setSaved(true); setTimeout(() => setSaved(false), 3000)
-    } catch { setErr('Could not save.') }
+      await api.patch('auth/profile/', form)
+      setMsg('Saved!')
+    } catch { setMsg('Error saving.') }
+    finally { setSaving(false) }
   }
 
-  const openWhatsApp = (e) => {
-    e.preventDefault()
-    if (!waForm.name || !waForm.issue) return
-    const msg = encodeURIComponent(
-      `Hello ${ADMIN_NAME},\n\nName: ${waForm.name}\nIssue: ${waForm.issue}${waForm.details ? '\nDetails: '+waForm.details : ''}\n\nPlease help me with PersonalHub.`
-    )
-    window.open(`https://wa.me/${ADMIN_PHONE}?text=${msg}`, '_blank')
+  const uploadAvatar = async (file) => {
+    if (!file) return
+    setAvatarUploading(true)
+    const fd = new FormData(); fd.append('avatar', file)
+    try {
+      const r = await api.post('auth/avatar/', fd, { headers:{'Content-Type':'multipart/form-data'} })
+      setProfile(p => ({ ...p, avatar_url: r.data.avatar_url }))
+    } catch { setMsg('Avatar upload failed.') }
+    finally { setAvatarUploading(false) }
   }
+
+  const downloadExport = async (type) => {
+    const r = await api.get(`export/${type}/`, { responseType: 'blob' })
+    const url = URL.createObjectURL(new Blob([r.data]))
+    const a = document.createElement('a'); a.href = url; a.download = `${type}.csv`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  }
+
+  if (loading) return <div className="spinner" />
+
+  const statItems = [
+    { label: 'Tasks Done',       value: stats?.tasks_done,         color: 'var(--green)', icon: '✅' },
+    { label: 'Active Tasks',     value: stats?.tasks_active,        color: 'var(--accent)', icon: '📋' },
+    { label: 'Habits Completed', value: stats?.habits_completed,    color: 'var(--cyan)', icon: '🔁' },
+    { label: 'Notes',            value: stats?.notes,               color: 'var(--yellow)', icon: '📝' },
+    { label: 'Files',            value: stats?.files,               color: 'var(--orange)', icon: '📁' },
+    { label: 'Transactions',     value: stats?.transactions,        color: 'var(--pink)', icon: '💰' },
+  ]
 
   return (
     <div className="page">
-      <h1 className="page-title">⚙️ Profile</h1>
+      <h1 className="page-title">⚙️ <span className="title-text">Profile</span></h1>
 
-      {/* User info */}
+      {/* Avatar + name */}
       <div className="card" style={{ marginBottom: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-          <div style={{
-            width: 52, height: 52, borderRadius: '50%', background: 'var(--accent-glow)',
-            border: '2px solid var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, fontWeight: 700, color: 'var(--accent)',
-          }}>
-            {user?.username?.[0]?.toUpperCase()}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          {/* Avatar */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <div onClick={() => avatarRef.current?.click()} style={{
+              width: 80, height: 80, borderRadius: '50%', cursor: 'pointer',
+              background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 32, overflow: 'hidden',
+              border: '2px solid rgba(124,106,247,0.4)',
+              boxShadow: '0 0 20px rgba(124,106,247,0.3)',
+            }}>
+              {profile?.avatar_url
+                ? <img src={profile.avatar_url} alt="avatar" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                : (profile?.username?.[0]?.toUpperCase() || '👤')
+              }
+            </div>
+            {avatarUploading && (
+              <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.5)', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <div className="spinner" style={{ width:20, height:20, margin:0 }} />
+              </div>
+            )}
+            <input ref={avatarRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => uploadAvatar(e.target.files?.[0])} />
+            <div style={{ position:'absolute', bottom:0, right:0, background:'var(--accent)', borderRadius:'50%', width:22, height:22, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, cursor:'pointer', border:'2px solid var(--bg)' }}
+              onClick={() => avatarRef.current?.click()}>✏️</div>
           </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{user?.username}</div>
-            <div style={{ marginTop: 4 }}>
-              {user?.is_superuser
-                ? <span className="badge badge-purple">Superuser</span>
-                : <span className="badge badge-green">User</span>}
+
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "'Space Grotesk',sans-serif" }}>{profile?.username}</div>
+            <div style={{ color: 'var(--text3)', fontSize: 13 }}>{profile?.email || 'No email set'}</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              <span className={`badge ${profile?.is_approved ? 'badge-green' : 'badge-yellow'}`}>
+                {profile?.is_approved ? '✓ Approved' : '⏳ Pending'}
+              </span>
             </div>
           </div>
-        </div>
 
-        <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {/* Theme toggle */}
+          <button onClick={toggleTheme} style={{
+            padding: '8px 16px', borderRadius: 10, border: '1px solid var(--border2)',
+            background: 'var(--surface2)', color: 'var(--text)', fontSize: 18, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'inherit',
+          }}>
+            {theme === 'dark' ? '☀️' : '🌙'}
+            <span style={{ fontSize: 12 }}>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Stats grid */}
+      {stats && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 18 }}>
+          {statItems.map(s => (
+            <div key={s.label} className="stat-card" style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 22, marginBottom: 4 }}>{s.icon}</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: s.color, fontFamily: "'Space Grotesk',sans-serif" }}>{s.value ?? 0}</div>
+              <div className="stat-label">{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Profile form */}
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div style={{ fontWeight: 700, marginBottom: 14, fontSize: 15 }}>Account Settings</div>
+        <form onSubmit={saveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <label>Reminder Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" />
+            <input type="email" placeholder="Email for task & routine reminders"
+              value={form.reminder_email} onChange={e => setForm(p => ({ ...p, reminder_email: e.target.value }))} />
           </div>
-          <p style={{ fontSize: 12, color: 'var(--text2)' }}>
-            Task and routine reminders are sent to this address via Brevo. Leave blank to disable.
-          </p>
-          {saved && <p className="msg-success">✅ Saved!</p>}
-          {err && <p className="msg-error">{err}</p>}
-          <button className="btn-primary" style={{ alignSelf: 'flex-start' }}>Save Email</button>
+          <div>
+            <label>Bio</label>
+            <textarea placeholder="A short bio about yourself…" value={form.bio} rows={3}
+              style={{ resize: 'vertical' }} onChange={e => setForm(p => ({ ...p, bio: e.target.value }))} />
+          </div>
+          {msg && <p className={msg.includes('Error') ? 'msg-error' : 'msg-success'}>{msg}</p>}
+          <button className="btn-primary" style={{ alignSelf: 'flex-start' }} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
         </form>
       </div>
 
-      {/* Contact admin via WhatsApp */}
+      {/* Export */}
       <div className="card">
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>💬 Contact Admin</div>
-        <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 14 }}>
-          Need access, changes, or have an issue? Fill the form and message the admin directly on WhatsApp.
-        </p>
-
-        <form onSubmit={openWhatsApp} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div>
-            <label>Your Name *</label>
-            <input placeholder="e.g. Ravi Kumar" value={waForm.name}
-              onChange={e => setWaForm({...waForm, name: e.target.value})} required />
-          </div>
-          <div>
-            <label>Issue / Request *</label>
-            <input placeholder="e.g. Request account access, Reset password, Bug report…"
-              value={waForm.issue} onChange={e => setWaForm({...waForm, issue: e.target.value})} required />
-          </div>
-          <div>
-            <label>Additional Details (optional)</label>
-            <textarea placeholder="Describe in detail…" rows={3} style={{ resize: 'vertical' }}
-              value={waForm.details} onChange={e => setWaForm({...waForm, details: e.target.value})} />
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
-            <button type="submit" className="wa-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-              </svg>
-              Contact via WhatsApp
-            </button>
-            <div style={{ fontSize: 12, color: 'var(--text2)' }}>
-              Admin: <strong style={{ color: 'var(--text)' }}>{ADMIN_NAME}</strong>
-            </div>
-          </div>
-        </form>
+        <div style={{ fontWeight: 700, marginBottom: 14, fontSize: 15 }}>Export Data</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn-secondary" onClick={() => downloadExport('tasks')}>⬇️ Tasks CSV</button>
+          <button className="btn-secondary" onClick={() => downloadExport('transactions')}>⬇️ Transactions CSV</button>
+          <button className="btn-secondary" onClick={() => downloadExport('notes')}>⬇️ Notes CSV</button>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 10 }}>Download all your data as CSV files.</p>
       </div>
     </div>
   )

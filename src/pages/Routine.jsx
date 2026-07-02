@@ -94,15 +94,19 @@ export default function Routine() {
     await api.post('routine/reorder/', { ordered_ids: next.map(t => t.id) })
   }
   const [showHistory, setShowHistory] = useState(false)
+  const [streaks, setStreaks] = useState({})
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [expandedDates, setExpandedDates] = useState({})
 
   const loadToday = () => api.get('routine/today/').then(r => setData(r.data))
   const loadTasks = () => api.get('routine/tasks/').then(r => setRoutineTasks(r.data))
+  const loadStreaks = () => api.get('routine/streaks/').then(r => {
+    const m = {}; r.data.forEach(s => { m[s.id] = s }); setStreaks(m)
+  })
 
   useEffect(() => {
-    Promise.all([loadToday(), loadTasks()]).finally(() => setLoading(false))
+    Promise.all([loadToday(), loadTasks(), loadStreaks()]).finally(() => setLoading(false))
   }, [])
 
   const openHistory = async () => {
@@ -259,9 +263,15 @@ export default function Routine() {
                   <span className="drag-handle">≡</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 500, fontSize: 14 }}>{rt.title}</div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 3, flexWrap: 'wrap', alignItems: 'center' }}>
                       <span className="tag" style={{ fontSize: 11 }}>{fmtDays(rt.active_days ?? ALL_DAYS)}</span>
                       {rt.reminder_time && <span className="tag" style={{ fontSize: 11 }}>⏰ {rt.reminder_time}</span>}
+                      {streaks[rt.id]?.current_streak > 0 && (
+                        <span className="badge badge-yellow" style={{ fontSize: 11 }}>🔥 {streaks[rt.id].current_streak}d streak</span>
+                      )}
+                      {streaks[rt.id]?.best_streak > 0 && (
+                        <span style={{ fontSize: 10, color: 'var(--text3)' }}>best: {streaks[rt.id].best_streak}d</span>
+                      )}
                     </div>
                   </div>
                   <button className="btn-icon btn-sm" onClick={() => {
