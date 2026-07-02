@@ -80,7 +80,16 @@ function Nav() {
           )}
         </div>
         <div className="nav-right">
-          <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/profile">⚙️</NavLink>
+          <NavLink className={({isActive})=>'nav-link'+(isActive?' active':'')} to="/profile"
+            style={{display:'flex',alignItems:'center',gap:6}}>
+            <span style={{
+              width:26,height:26,borderRadius:'50%',
+              background:'linear-gradient(135deg,var(--accent),var(--accent2))',
+              display:'flex',alignItems:'center',justifyContent:'center',
+              fontSize:12,fontWeight:700,color:'#fff',flexShrink:0,
+            }}>{user?.username?.[0]?.toUpperCase()||'?'}</span>
+            <span style={{fontSize:13,color:'var(--text2)'}}>{user?.username}</span>
+          </NavLink>
           <button className="btn-secondary btn-sm" onClick={handleLogoutClick}>Logout</button>
         </div>
       </nav>
@@ -125,10 +134,20 @@ export default function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Apply saved theme immediately — before any API call — so no flash on refresh
+    const savedTheme = localStorage.getItem('ph-theme') || 'dark'
+    document.documentElement.setAttribute('data-theme', savedTheme)
+
     const token = localStorage.getItem('token')
     if (!token) { setLoading(false); return }
     api.get('auth/me/').then(r => {
       setUser(r.data.user); setApproved(r.data.approved)
+      // Also sync theme from server in case it was changed on another device
+      if (r.data.profile?.theme) {
+        const t = r.data.profile.theme
+        localStorage.setItem('ph-theme', t)
+        document.documentElement.setAttribute('data-theme', t)
+      }
     }).catch(() => localStorage.removeItem('token'))
     .finally(() => setLoading(false))
   }, [])

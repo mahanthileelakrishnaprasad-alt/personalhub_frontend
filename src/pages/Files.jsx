@@ -127,8 +127,47 @@ export default function Files() {
   const BASE = import.meta.env.VITE_API_BASE || ''
   const token = localStorage.getItem('token') || ''
   const proxyUrl = (f, dl = false) => `${BASE}/api/files/${f.id}/proxy/?token=${token}${dl ? '&download=1' : ''}`
-  const openFile = (f) => f.file_type === 'image' ? window.open(f.file_url, '_blank', 'noreferrer') : window.open(proxyUrl(f), '_blank', 'noreferrer')
-  const downloadFile = (f) => { const a = document.createElement('a'); a.href = proxyUrl(f, true); a.download = f.name; document.body.appendChild(a); a.click(); document.body.removeChild(a) }
+  // Determine how to open each file type
+  const openFile = (f) => {
+    const ext = f.name.split('.').pop().toLowerCase()
+    const googleViewerExts = ['docx','doc','xlsx','xls','pptx','ppt','odt','ods','odp']
+
+    if (f.file_type === 'image') {
+      // Images: open direct Cloudinary URL
+      window.open(f.file_url, '_blank', 'noreferrer')
+    } else if (f.file_type === 'pdf') {
+      // PDFs: open via proxy with correct Content-Type
+      window.open(proxyUrl(f), '_blank', 'noreferrer')
+    } else if (googleViewerExts.includes(ext)) {
+      // Office docs: open in Google Docs viewer (renders docx/xlsx/pptx in browser)
+      const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(f.file_url)}&embedded=false`
+      window.open(viewerUrl, '_blank', 'noreferrer')
+    } else if (ext === 'html' || ext === 'htm') {
+      // HTML files: fetch via proxy then open as blob so browser renders it
+      fetch(proxyUrl(f))
+        .then(r => r.blob())
+        .then(blob => {
+          const b = new Blob([blob], { type: 'text/html' })
+          window.open(URL.createObjectURL(b), '_blank', 'noreferrer')
+        })
+        .catch(() => {
+          // Fallback to download if fetch fails
+          const a = document.createElement('a')
+          a.href = proxyUrl(f, true); a.download = f.name
+          document.body.appendChild(a); a.click(); document.body.removeChild(a)
+        })
+    } else {
+      // Everything else (mp4, zip, etc.): force download
+      const a = document.createElement('a')
+      a.href = proxyUrl(f, true); a.download = f.name
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    }
+  }
+  const downloadFile = (f) => {
+    const a = document.createElement('a')
+    a.href = proxyUrl(f, true); a.download = f.name
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  }
   const typeIcon = (t) => ({ image: '🖼️', pdf: '📄', text: '📝', other: '📎' }[t] || '📎')
 
   const currentFileFolderName = fileFolders.find(f => String(f.id) === String(fileFolder))?.name

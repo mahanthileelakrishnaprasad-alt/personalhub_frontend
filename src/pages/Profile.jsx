@@ -52,15 +52,26 @@ export default function Profile() {
     try {
       const r = await api.post('auth/avatar/', fd, { headers:{'Content-Type':'multipart/form-data'} })
       setProfile(p => ({ ...p, avatar_url: r.data.avatar_url }))
+      setMsg('Avatar updated!')
+      // Re-fetch profile to confirm DB is in sync
+      const fresh = await api.get('auth/profile/')
+      setProfile(fresh.data)
     } catch { setMsg('Avatar upload failed.') }
     finally { setAvatarUploading(false) }
   }
 
   const downloadExport = async (type) => {
     const r = await api.get(`export/${type}/`, { responseType: 'blob' })
-    const url = URL.createObjectURL(new Blob([r.data]))
-    const a = document.createElement('a'); a.href = url; a.download = `${type}.csv`
+    const isZip = type === 'backup'
+    const ext = isZip ? 'zip' : 'csv'
+    const mime = isZip ? 'application/zip' : 'text/csv'
+    const stamp = new Date().toISOString().slice(0,10)
+    const filename = isZip ? `personalhub_backup_${stamp}.zip` : `${type}.csv`
+    const blob = new Blob([r.data], { type: mime })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = filename
     document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
   }
 
   if (loading) return <div className="spinner" />
@@ -170,7 +181,26 @@ export default function Profile() {
           <button className="btn-secondary" onClick={() => downloadExport('transactions')}>⬇️ Transactions CSV</button>
           <button className="btn-secondary" onClick={() => downloadExport('notes')}>⬇️ Notes CSV</button>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 10 }}>Download all your data as CSV files.</p>
+        <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 10 }}>Download your data as CSV files.</p>
+
+        {/* Superuser-only full backup */}
+        {user?.is_superuser && (
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: 'var(--accent3)' }}>
+              🛡️ Admin — Full Database Backup
+            </div>
+            <button
+              className="btn-primary"
+              onClick={() => downloadExport('backup')}
+              style={{ background: 'linear-gradient(135deg, #f97316, #e11d48)' }}
+            >
+              ⬇️ Download Full Backup (ZIP)
+            </button>
+            <p style={{ fontSize: 11, color: 'var(--text3)', marginTop: 8 }}>
+              All users · all tables · CSV files in a single ZIP. Download daily for your personal cloud backup.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
